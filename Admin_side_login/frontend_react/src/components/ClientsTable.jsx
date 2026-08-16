@@ -1,5 +1,15 @@
 import React, { useState } from 'react';
 
+function formatDate(dateVal) {
+  if (!dateVal) return 'N/A';
+  const d = new Date(dateVal);
+  if (isNaN(d.getTime())) return dateVal;
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
+
 export default function ClientsTable({ clients, onSelectClient, onOpenAddClient, onDeleteClient }) {
   const [filterStage, setFilterStage] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -94,7 +104,7 @@ export default function ClientsTable({ clients, onSelectClient, onOpenAddClient,
               const displayOwner = c.owner || 'Unassigned';
               const displayClaims = c.claimsSystem || c.claims_system || 'Unknown';
               const displayState = c.state || 'Unknown';
-              const displayDate = c.liveSince || c.live_since || (c.created_at ? new Date(c.created_at).toLocaleDateString() : 'N/A');
+              const displayDate = formatDate(c.liveSince || c.live_since || c.created_at);
 
               return (
                 <tr key={c.id} onClick={() => onSelectClient(c.id)} title={`Click to view ${c.name} workspace`}>

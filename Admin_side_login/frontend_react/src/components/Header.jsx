@@ -1,6 +1,10 @@
 import React from 'react';
 
-export default function Header({ clients, activeClientId, onSelectClient, activeClientName, onSignOut, showClientBadge = true }) {
+export default function Header({ clients, activeClientId, onSelectClient, activeClientName, onSignOut, showClientBadge = true, currentUser }) {
+  const adminName = currentUser?.name || 'Vikram J.';
+  const initials = adminName.split(' ').filter(Boolean).map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'VJ';
+  const role = currentUser?.role || 'Platform Admin';
+
   return (
     <div className="topbar">
       <div className="wordmark">OneSmarter <span>/ MIR Relay Admin</span></div>
@@ -12,10 +16,10 @@ export default function Header({ clients, activeClientId, onSelectClient, active
       )}
       <div className="env env-ok" id="env">Live · Database Connected</div>
       <div className="me">
-        <div className="av">VJ</div>
+        <div className="av">{initials}</div>
         <div>
-          <div>Vikram J.</div>
-          <div className="role">Platform Admin</div>
+          <div>{adminName}</div>
+          <div className="role">{role}</div>
         </div>
       </div>
       <button className="signout" id="signout" onClick={onSignOut}>Sign Out</button>

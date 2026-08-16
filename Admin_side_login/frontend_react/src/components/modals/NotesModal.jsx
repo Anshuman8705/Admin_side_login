@@ -2,6 +2,18 @@ import React, { useState, useEffect } from 'react';
 import CenteredModal from './CenteredModal';
 import { fetchNotes, addNote } from '../../services/api';
 
+function formatDateTime(dateVal) {
+  if (!dateVal) return 'N/A';
+  const d = new Date(dateVal);
+  if (isNaN(d.getTime())) return dateVal;
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
+}
+
 export default function NotesModal({ isOpen, onClose, clientId, stepKey, stepTitle }) {
   const [notes, setNotes] = useState([]);
   const [newNote, setNewNote] = useState('');
@@ -50,7 +62,7 @@ export default function NotesModal({ isOpen, onClose, clientId, stepKey, stepTit
           [...notes].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).map((n) => (
             <div key={n.id} className="note-item">
               <div className="meta">
-                <b>{n.author}</b> · {new Date(n.created_at).toLocaleString()}
+                <b>{n.author}</b> · {formatDateTime(n.created_at)}
               </div>
               <div>{n.note_text}</div>
             </div>

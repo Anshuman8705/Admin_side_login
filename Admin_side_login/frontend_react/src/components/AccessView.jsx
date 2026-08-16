@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { fetchAccessInfo } from '../services/api';
 
-export default function AccessView() {
+export default function AccessView({ currentUser }) {
   const [accessData, setAccessData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -27,7 +27,13 @@ export default function AccessView() {
     if (!isoStr) return '—';
     try {
       const d = new Date(isoStr);
-      return d.toLocaleString('en-US', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+      if (isNaN(d.getTime())) return isoStr;
+      const dd = String(d.getDate()).padStart(2, '0');
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const yyyy = d.getFullYear();
+      const hh = String(d.getHours()).padStart(2, '0');
+      const min = String(d.getMinutes()).padStart(2, '0');
+      return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
     } catch (e) {
       return isoStr;
     }
@@ -41,22 +47,17 @@ export default function AccessView() {
           <h1 style={{ margin: 0 }}>Access Matrix</h1>
           <p className="sub">Administrative staff role-based access and break-glass logging.</p>
         </div>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <button type="button" className="btn" onClick={loadAccess} disabled={loading}>
-            ↻ Refresh
-          </button>
-        </div>
       </div>
 
       <div className="metrics">
         <div className="metric">
-          <div className="v">Vikram J.</div>
+          <div className="v">{currentUser?.name || 'Vikram J.'}</div>
           <div className="l">Current Admin</div>
-          <div className="d">Platform Admin</div>
+          <div className="d">{currentUser?.role || 'Platform Admin'}</div>
         </div>
         <div className="metric">
           <div className="v" style={{ fontSize: '18px' }}>
-            {accessData?.last_login || 'Loading...'}
+            {accessData?.last_login ? formatDate(accessData.last_login) : accessData ? 'Never' : 'Loading...'}
           </div>
           <div className="l">Last Login</div>
           <div className="d">Dynamic database record</div>
@@ -86,7 +87,7 @@ export default function AccessView() {
       ) : (
         <>
           <h2 className="sec">Administrative Staff Access</h2>
-          <table>
+          <table style={{ width: '100%', tableLayout: 'fixed' }}>
             <thead>
               <tr>
                 <th>Person</th>
@@ -104,7 +105,7 @@ export default function AccessView() {
                   <td>{member.role}</td>
                   <td><span className="tag ok">{member.access}</span></td>
                   <td><span className="tag ok">{member.mfa}</span></td>
-                  <td className="num">{member.last_login}</td>
+                  <td className="num">{formatDate(member.last_login)}</td>
                   <td><span className="tag ok">{member.status}</span></td>
                 </tr>
               ))}
@@ -112,7 +113,7 @@ export default function AccessView() {
           </table>
 
           <h2 className="sec">Recent Administrator Login History</h2>
-          <table>
+          <table style={{ width: '100%', tableLayout: 'fixed' }}>
             <thead>
               <tr>
                 <th>Login Timestamp</th>

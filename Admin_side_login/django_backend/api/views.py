@@ -36,7 +36,8 @@ from .serializers import (
 )
 from .validation import (
     validate_step_upload, validate_x12_835_content,
-    validate_phone_number, validate_email_address, get_step_download_filename
+    validate_phone_number, validate_email_address, get_step_download_filename,
+    validate_golive_step_upload
 )
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate
@@ -140,7 +141,7 @@ class AuthLoginView(APIView):
 
         # 1. Determine "Last Login" (previous successful login before this one)
         prev_login = LoginHistory.objects.filter(username=user.username, status='SUCCESS').order_by('-login_time').first()
-        last_login_str = prev_login.login_time.strftime("%d %b %Y, %I:%M %p") if prev_login else "First Administrator Session"
+        last_login_str = prev_login.login_time.strftime("%d/%m/%Y, %I:%M %p") if prev_login else "First Administrator Session"
 
         # 2. Record new current login
         new_login = LoginHistory.objects.create(
@@ -216,27 +217,55 @@ class AuthLogoutView(APIView):
 
 class AccessInfoView(APIView):
     def get(self, request):
-        # Calculate dynamic previous login
-        successful_logins = LoginHistory.objects.filter(username='admin', status='SUCCESS').order_by('-login_time')
+        current_username = request.user.username if request.user and request.user.is_authenticated else 'admin'
+        
+        # Calculate dynamic previous login for current user
+        successful_logins = LoginHistory.objects.filter(username=current_username, status='SUCCESS').order_by('-login_time')
         # Skip the most current login to get the previous login
         if successful_logins.count() > 1:
             prev_login = successful_logins[1]
-            last_login_str = prev_login.login_time.strftime("%d %b %Y, %I:%M %p")
+            last_login_str = prev_login.login_time.isoformat()
         elif successful_logins.count() == 1:
-            last_login_str = successful_logins[0].login_time.strftime("%d %b %Y, %I:%M %p")
+            last_login_str = successful_logins[0].login_time.isoformat()
         else:
-            last_login_str = datetime.now(timezone.utc).strftime("%d %b %Y, %I:%M %p")
+            last_login_str = None
 
         recent_history = LoginHistory.objects.all().order_by('-login_time')[:10]
+
+        # Dynamically fetch staff from the database User model
+        from django.contrib.auth.models import User
+        staff_list = []
+        for u in User.objects.filter(is_staff=True).order_by('id'):
+            full_name = u.get_full_name() or u.username
+            u_logins = LoginHistory.objects.filter(username=u.username, status='SUCCESS').order_by('-login_time')
+            u_last_login = u_logins[0].login_time.isoformat() if u_logins.exists() else None
+            
+            # Determine MFA status
+            has_mfa = AdminMFA.objects.filter(user=u, is_enabled=True).exists()
+            mfa_type = "Authenticator (TOTP)" if has_mfa else "Not Configured"
+            
+            role = "Platform Admin" if u.is_superuser else "Implementation Specialist"
+            access_level = "Full Access" if u.is_superuser else "Assigned Tenants"
+            
+            staff_list.append({
+                'person': full_name,
+                'role': role,
+                'access': access_level,
+                'mfa': mfa_type,
+                'last_login': u_last_login,
+                'status': 'Active' if u.is_active else 'Inactive'
+            })
+
+        # Fallback if no staff returned
+        if not staff_list:
+            staff_list = [
+                {'person': 'Vikram J.', 'role': 'Platform Admin', 'access': 'Full Access', 'mfa': 'Hardware Key (FIDO2)', 'last_login': last_login_str, 'status': 'Active'},
+            ]
 
         return Response({
             'ok': True,
             'last_login': last_login_str,
-            'staff': [
-                {'person': 'Vikram J.', 'role': 'Platform Admin', 'access': 'Full Access', 'mfa': 'Hardware Key (FIDO2)', 'last_login': last_login_str, 'status': 'Active'},
-                {'person': 'Rushi', 'role': 'Implementation Lead', 'access': 'Assigned Tenants', 'mfa': 'Hardware Key', 'last_login': '14 Aug 2026, 04:30 PM', 'status': 'Active'},
-                {'person': 'Prajval', 'role': 'Integration Engineer', 'access': 'Assigned Tenants', 'mfa': 'Authenticator', 'last_login': '14 Aug 2026, 02:15 PM', 'status': 'Active'},
-            ],
+            'staff': staff_list,
             'recent_logins': LoginHistorySerializer(recent_history, many=True).data
         })
 
@@ -724,6 +753,10 @@ class GoLiveStep1UploadView(APIView):
             return Response({'error': 'File exceeds 10 MB limit'}, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
 
         orig_filename = request.headers.get('X-Filename') or 'OneSmarter_CutoverAuthorization_Signed.pdf'
+        v_res = validate_golive_step_upload(1, buf, orig_filename)
+        if not v_res.get('ok'):
+            return Response({'ok': False, 'error': 'Validation failed', 'checks': v_res.get('checks')}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
         os.makedirs(EVID_DIR, exist_ok=True)
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S")
         safe_orig = re.sub(r"[^A-Za-z0-9._-]+", "_", orig_filename)[:120]
@@ -754,7 +787,7 @@ class GoLiveStep1UploadView(APIView):
         advance_golive_step(client, 1)
         log_audit(client=client, module='GO_LIVE', action='STEP_1_UPLOAD', details=f"Uploaded Step 1 Cutover Authorization for {client.name}.", request=request)
 
-        return Response({'ok': True, 'state': build_golive_state(client)})
+        return Response({'ok': True, 'state': build_golive_state(client), 'checks': v_res.get('checks')})
 
 
 class GoLiveStep1DownloadView(APIView):
@@ -764,7 +797,7 @@ class GoLiveStep1DownloadView(APIView):
             return Response({'error': 'Client not found'}, status=status.HTTP_404_NOT_FOUND)
 
         sample_dir = os.path.abspath(os.path.join(settings.BASE_DIR.parent, 'sample documents'))
-        file_path = os.path.join(sample_dir, 'OneSmarter_MutualNDA_Template.pdf')
+        file_path = os.path.join(sample_dir, 'OneSmarter_CutoverAuthorization_Template.pdf')
         if not os.path.exists(file_path):
             return Response({'error': 'Template file not found'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -792,6 +825,10 @@ class GoLiveStep2UploadView(APIView):
             return Response({'error': 'File exceeds 10 MB limit'}, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
 
         orig_filename = request.headers.get('X-Filename') or 'OneSmarter_ProductionBaseline_Signed.pdf'
+        v_res = validate_golive_step_upload(2, buf, orig_filename)
+        if not v_res.get('ok'):
+            return Response({'ok': False, 'error': 'Validation failed', 'checks': v_res.get('checks')}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
         os.makedirs(EVID_DIR, exist_ok=True)
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S")
         safe_orig = re.sub(r"[^A-Za-z0-9._-]+", "_", orig_filename)[:120]
@@ -820,7 +857,7 @@ class GoLiveStep2UploadView(APIView):
         advance_golive_step(client, 2)
         log_audit(client=client, module='GO_LIVE', action='STEP_2_UPLOAD', details=f"Uploaded Step 2 Baseline Compliance for {client.name}.", request=request)
 
-        return Response({'ok': True, 'state': build_golive_state(client)})
+        return Response({'ok': True, 'state': build_golive_state(client), 'checks': v_res.get('checks')})
 
 
 class GoLiveStep2DownloadView(APIView):
@@ -830,7 +867,7 @@ class GoLiveStep2DownloadView(APIView):
             return Response({'error': 'Client not found'}, status=status.HTTP_404_NOT_FOUND)
 
         sample_dir = os.path.abspath(os.path.join(settings.BASE_DIR.parent, 'sample documents'))
-        file_path = os.path.join(sample_dir, 'OneSmarter_BAA_Template.pdf')
+        file_path = os.path.join(sample_dir, 'OneSmarter_ProductionBaseline_Template.pdf')
         if not os.path.exists(file_path):
             return Response({'error': 'Template file not found'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -970,7 +1007,7 @@ class GoLiveStep6CompleteView(APIView):
         # Promote client stage to production
         client.stage = 'production'
         client.state = 'Healthy'
-        client.live_since = datetime.now(timezone.utc).strftime("%d %b %Y")
+        client.live_since = datetime.now(timezone.utc).strftime("%d/%m/%Y")
         client.save()
 
         log_audit(client=client, module='GO_LIVE', action='PRODUCTION_SUCCESSFUL_COMPLETE', details=f"Production Successful! Client '{client.name}' is now fully live.", request=request)

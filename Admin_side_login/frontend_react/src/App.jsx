@@ -18,6 +18,14 @@ export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     return Boolean(localStorage.getItem('onesmarter_admin_token'));
   });
+  const [currentUser, setCurrentUser] = useState(() => {
+    const saved = localStorage.getItem('onesmarter_admin_user');
+    try {
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      return null;
+    }
+  });
 
   const [clients, setClients] = useState([]);
   const [activeClientId, setActiveClientId] = useState('');
@@ -149,16 +157,26 @@ export default function App() {
     }
   };
 
+  const handleLoginSuccess = (res) => {
+    if (res && res.user) {
+      localStorage.setItem('onesmarter_admin_user', JSON.stringify(res.user));
+      setCurrentUser(res.user);
+    }
+    setIsAuthenticated(true);
+  };
+
   const handleSignOut = async () => {
     await logoutAdmin();
     localStorage.removeItem('onesmarter_admin_token');
+    localStorage.removeItem('onesmarter_admin_user');
+    setCurrentUser(null);
     setIsAuthenticated(false);
   };
 
   const currentClient = clients.find(c => c.id === activeClientId) || clients[0];
 
   if (!isAuthenticated) {
-    return <LoginGate onLoginSuccess={() => setIsAuthenticated(true)} />;
+    return <LoginGate onLoginSuccess={handleLoginSuccess} />;
   }
 
   return (
@@ -169,7 +187,8 @@ export default function App() {
         onSelectClient={handleSelectClient}
         activeClientName={currentClient?.name}
         onSignOut={handleSignOut}
-        showClientBadge={activeNav === 'onboard'}
+        showClientBadge={['onboard', 'docs', 'sandbox', 'promote'].includes(activeNav)}
+        currentUser={currentUser}
       />
 
       <div className="shell">
@@ -219,7 +238,10 @@ export default function App() {
           {activeNav === 'clients' && (
             <ClientsTable
               clients={clients}
-              onSelectClient={handleSelectClient}
+              onSelectClient={(clientId) => {
+                handleSelectClient(clientId);
+                setActiveNav('onboard');
+              }}
               onOpenAddClient={() => setIsAddClientOpen(true)}
               onDeleteClient={handleDeleteClient}
             />
@@ -266,20 +288,86 @@ export default function App() {
 
           {activeNav === 'trust' && (
             <section className="view on" id="v-trust">
-              <div className="eyebrow">Compliance Assurance</div>
-              <h1>Trust Center</h1>
-              <p className="sub">Security, encryption, HIPAA safeguards, and compliance attestations.</p>
-              <div className="creds">
-                <div className="cred"><div className="t">SOC 2 Type II</div><div className="s">Attested</div><div className="d">Report available under NDA</div></div>
-                <div className="cred"><div className="t">ISO 27001</div><div className="s">Certified</div><div className="d">Surveillance audit Q1 2026</div></div>
-                <div className="cred"><div className="t">HIPAA Audit</div><div className="s">Audited</div><div className="d">Safeguards verified</div></div>
-                <div className="cred"><div className="t">Post-Quantum</div><div className="s">Encrypted</div><div className="d">ML-DSA-65 signatures</div></div>
+              <div className="hdr-row">
+                <div>
+                  <div className="eyebrow">Compliance Assurance</div>
+                  <h1>Trust Center</h1>
+                  <p className="sub">Security, encryption, HIPAA safeguards, and compliance attestations.</p>
+                </div>
               </div>
+              <div className="metrics">
+                <div className="metric">
+                  <div className="v" style={{ fontSize: '20px', fontWeight: 600 }}>SOC 2 Type II</div>
+                  <div className="l">
+                    <span className="tag ok">Attested</span>
+                  </div>
+                  <div className="d">Report available under NDA</div>
+                </div>
+                <div className="metric">
+                  <div className="v" style={{ fontSize: '20px', fontWeight: 600 }}>ISO 27001</div>
+                  <div className="l">
+                    <span className="tag ok">Certified</span>
+                  </div>
+                  <div className="d">Surveillance audit Q1 2026</div>
+                </div>
+                <div className="metric">
+                  <div className="v" style={{ fontSize: '20px', fontWeight: 600 }}>HIPAA Audit</div>
+                  <div className="l">
+                    <span className="tag ok">Audited</span>
+                  </div>
+                  <div className="d">Safeguards verified</div>
+                </div>
+                <div className="metric">
+                  <div className="v" style={{ fontSize: '20px', fontWeight: 600 }}>Post-Quantum</div>
+                  <div className="l">
+                    <span className="tag ok">Encrypted</span>
+                  </div>
+                  <div className="d">ML-DSA-65 signatures</div>
+                </div>
+              </div>
+
+              <h2 className="sec">Security Policies &amp; Standards</h2>
+              <table style={{ width: '100%', tableLayout: 'fixed' }}>
+                <thead>
+                  <tr>
+                    <th>Policy / Document</th>
+                    <th>Standard</th>
+                    <th>Status</th>
+                    <th>Last Reviewed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><b>Information Security Policy</b></td>
+                    <td>ISO 27001:2022</td>
+                    <td><span className="tag ok">Published</span></td>
+                    <td className="num">15 Jan 2026</td>
+                  </tr>
+                  <tr>
+                    <td><b>Incident Response Plan</b></td>
+                    <td>NIST SP 800-61</td>
+                    <td><span className="tag ok">Active</span></td>
+                    <td className="num">10 Feb 2026</td>
+                  </tr>
+                  <tr>
+                    <td><b>HIPAA Security Rule Safeguards</b></td>
+                    <td>45 CFR Part 160/164</td>
+                    <td><span className="tag ok">Compliant</span></td>
+                    <td className="num">02 Feb 2026</td>
+                  </tr>
+                  <tr>
+                    <td><b>Access Control Policy</b></td>
+                    <td>SOC 2 CC6.0</td>
+                    <td><span className="tag ok">Published</span></td>
+                    <td className="num">18 Jan 2026</td>
+                  </tr>
+                </tbody>
+              </table>
             </section>
           )}
 
           {activeNav === 'access' && (
-            <AccessView />
+            <AccessView currentUser={currentUser} />
           )}
 
           {activeNav === 'audit' && (
@@ -289,11 +377,6 @@ export default function App() {
                   <div className="eyebrow">Append Only Audit</div>
                   <h1>Audit Log</h1>
                   <p className="sub">Immutable audit trail of all client onboarding, document, test, go-live, and administrative actions.</p>
-                </div>
-                <div>
-                  <button type="button" className="btn" onClick={() => loadAuditLogs(auditClientFilter, auditModuleFilter)}>
-                    ↻ Refresh
-                  </button>
                 </div>
               </div>
 

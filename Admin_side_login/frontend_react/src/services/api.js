@@ -297,8 +297,12 @@ export async function uploadGoLiveDoc(clientId, stepNum, file) {
     body: file
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Go Live document upload failed');
-  return data.state;
+  if (!res.ok) {
+    const err = new Error(data.error || 'Go Live document upload failed');
+    err.checks = data.checks || [];
+    throw err;
+  }
+  return data;
 }
 
 export async function downloadGoLiveTemplate(clientId, stepNum, filename) {

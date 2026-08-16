@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import CenteredModal from './CenteredModal';
-import { createClient } from '../../services/api';
+import { createClient, fetchAccessInfo } from '../../services/api';
 
 export default function AddClientModal({ isOpen, onClose, onClientCreated, existingClients = [] }) {
   const [name, setName] = useState('');
@@ -8,8 +8,28 @@ export default function AddClientModal({ isOpen, onClose, onClientCreated, exist
   const [claims, setClaims] = useState('Vendor hosted');
   const [email, setEmail] = useState('');
   const [owner, setOwner] = useState('Vikram J.');
+  const [owners, setOwners] = useState([]);
   const [errorMsg, setErrorMsg] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    async function loadOwners() {
+      try {
+        const data = await fetchAccessInfo();
+        if (data && data.staff) {
+          setOwners(data.staff);
+          if (data.staff.length > 0) {
+            setOwner(data.staff[0].person);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load owners:', err);
+      }
+    }
+    if (isOpen) {
+      loadOwners();
+    }
+  }, [isOpen]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -122,9 +142,17 @@ export default function AddClientModal({ isOpen, onClose, onClientCreated, exist
         <div className="field">
           <label>Assigned Account Owner</label>
           <select value={owner} onChange={(e) => setOwner(e.target.value)}>
-            <option value="Vikram J.">Vikram J.</option>
-            <option value="Rushi">Rushi</option>
-            <option value="Prajval">Prajval</option>
+            {owners.length > 0 ? (
+              owners.map((o, idx) => (
+                <option key={idx} value={o.person}>{o.person}</option>
+              ))
+            ) : (
+              <>
+                <option value="Vikram J.">Vikram J.</option>
+                <option value="Rushi">Rushi</option>
+                <option value="Prajval">Prajval</option>
+              </>
+            )}
           </select>
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '18px' }}>

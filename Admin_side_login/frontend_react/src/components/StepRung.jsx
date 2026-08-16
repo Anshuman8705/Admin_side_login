@@ -2,6 +2,18 @@ import React, { useState } from 'react';
 import { uploadStepFile, validateStaged835, postStepData, downloadTemplateFile } from '../services/api';
 import FeedbackModal from './modals/FeedbackModal';
 
+function formatDateTime(dateVal) {
+  if (!dateVal) return 'N/A';
+  const d = new Date(dateVal);
+  if (isNaN(d.getTime())) return dateVal;
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
+}
+
 export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes, onOpenRedo, onOpenAddRole }) {
   const [feedback, setFeedback] = useState({ isOpen: false, kind: 'ok', title: '', content: '', checks: [] });
 
@@ -230,7 +242,7 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
 
         {latestUp && (
           <div className="ev">
-            📄 Filed: <b>{latestUp.original_filename}</b> ({new Date(latestUp.uploaded_at).toLocaleString()})
+            📄 Filed: <b>{latestUp.original_filename}</b> ({formatDateTime(latestUp.uploaded_at)})
           </div>
         )}
 

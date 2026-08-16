@@ -5,6 +5,7 @@ import {
   saveGoLiveSFTP, saveGoLiveSchedule, saveGoLiveComment,
   completeGoLiveStep6, redoGoLiveStep
 } from '../services/api';
+import FeedbackModal from './modals/FeedbackModal';
 
 export default function GoLiveView({ clients = [], activeClientId, onSelectClient, onClientUpdated }) {
   const [selectedClientId, setSelectedClientId] = useState(activeClientId || (clients[0]?.id || ''));
@@ -13,6 +14,7 @@ export default function GoLiveView({ clients = [], activeClientId, onSelectClien
   const [actionLoading, setActionLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [feedback, setFeedback] = useState({ isOpen: false, kind: 'ok', title: '', content: '', checks: [] });
 
   // Step 3 SFTP
   const [sftpWatched, setSftpWatched] = useState(false);
@@ -97,11 +99,23 @@ export default function GoLiveView({ clients = [], activeClientId, onSelectClien
     setErrorMessage('');
     setSuccessMessage('');
     try {
-      const newState = await uploadGoLiveDoc(selectedClientId, stepNum, file);
-      setGoliveState(newState);
-      setSuccessMessage(`Go Live Step ${stepNum} document uploaded and verified successfully.`);
+      const res = await uploadGoLiveDoc(selectedClientId, stepNum, file);
+      setGoliveState(res.state);
+      setFeedback({
+        isOpen: true,
+        kind: 'ok',
+        title: 'Evidence Validated & Stored',
+        content: `Uploaded ${file.name} for Go Live Step ${stepNum}.`,
+        checks: res.checks || []
+      });
     } catch (err) {
-      setErrorMessage(err.message || `Step ${stepNum} upload failed`);
+      setFeedback({
+        isOpen: true,
+        kind: 'bad',
+        title: 'Validation Failed',
+        content: err.message,
+        checks: err.checks || []
+      });
     } finally {
       setActionLoading(false);
       if (stepNum === 1 && fileInputStep1Ref.current) fileInputStep1Ref.current.value = '';
@@ -251,12 +265,6 @@ export default function GoLiveView({ clients = [], activeClientId, onSelectClien
             <h1 style={{ margin: 0 }}>Go Live Readiness</h1>
           </div>
           <p className="sub">Sequential 6-step compliance ladder to promote <b>{currentClient?.name}</b> to full production operations.</p>
-        </div>
-
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <button type="button" className="btn" onClick={() => loadState(selectedClientId)} disabled={loading}>
-            ↻ Refresh
-          </button>
         </div>
       </div>
 
@@ -543,12 +551,11 @@ export default function GoLiveView({ clients = [], activeClientId, onSelectClien
                   {(isDone || isInProgress) && step.step_number < 6 && (
                     <button
                       type="button"
-                      className="btn tiny"
+                      className="btn tiny danger"
                       disabled={actionLoading}
                       onClick={() => handleRedo(step.step_number)}
-                      style={{ color: 'var(--brick)' }}
                     >
-                      ↺ Redo
+                      🔄 Redo
                     </button>
                   )}
                 </div>
@@ -561,6 +568,15 @@ export default function GoLiveView({ clients = [], activeClientId, onSelectClien
       <div className="note">
         <b>Go Live Ladder:</b> Sequential 6-step promotion process. Once all 6 steps are completed, the client's status is officially promoted to <b>Production</b>.
       </div>
+
+      <FeedbackModal
+        isOpen={feedback.isOpen}
+        onClose={() => setFeedback({ ...feedback, isOpen: false })}
+        kind={feedback.kind}
+        title={feedback.title}
+        content={feedback.content}
+        checks={feedback.checks}
+      />
     </section>
   );
 }

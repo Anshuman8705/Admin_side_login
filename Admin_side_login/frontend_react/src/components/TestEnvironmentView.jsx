@@ -123,14 +123,6 @@ export default function TestEnvironmentView({ clients = [], activeClientId, onSe
           >
             {testing ? 'Testing...' : '⚡ Run Sandbox Test'}
           </button>
-          <button
-            type="button"
-            className="btn"
-            onClick={() => loadTestEnvironment(selectedClientId)}
-            disabled={loading}
-          >
-            ↻ Refresh
-          </button>
         </div>
       </div>
 

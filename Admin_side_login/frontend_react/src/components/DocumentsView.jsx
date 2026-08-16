@@ -109,30 +109,6 @@ export default function DocumentsView({ clients = [], activeClientId, onSelectCl
           <p className="sub">Executed legal agreements, compliance certificates, and evidence files associated with <b>{currentClient?.name}</b>.</p>
         </div>
 
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleFileUpload}
-            style={{ display: 'none' }}
-          />
-          <button
-            type="button"
-            className="btn primary"
-            disabled={uploading || !selectedClientId}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            {uploading ? 'Uploading...' : '+ Upload Document'}
-          </button>
-          <button
-            type="button"
-            className="btn"
-            onClick={() => loadDocuments(selectedClientId)}
-            disabled={loading}
-          >
-            ↻ Refresh
-          </button>
-        </div>
       </div>
 
       {errorMessage && (
@@ -159,7 +135,7 @@ export default function DocumentsView({ clients = [], activeClientId, onSelectCl
           </p>
         </div>
       ) : (
-        <table>
+        <table style={{ width: '100%', tableLayout: 'fixed' }}>
           <thead>
             <tr>
               <th>Document</th>
@@ -170,7 +146,7 @@ export default function DocumentsView({ clients = [], activeClientId, onSelectCl
               <th>Size</th>
               <th>Uploaded By</th>
               <th>Status</th>
-              <th style={{ textAlign: 'right' }}>Actions</th>
+              <th style={{ textAlign: 'right', verticalAlign: 'middle' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -190,7 +166,7 @@ export default function DocumentsView({ clients = [], activeClientId, onSelectCl
                       {doc.status}
                     </span>
                   </td>
-                  <td style={{ textAlign: 'right' }}>
+                  <td style={{ textAlign: 'right', verticalAlign: 'middle' }}>
                     <button
                       type="button"
                       className="btn tiny primary"

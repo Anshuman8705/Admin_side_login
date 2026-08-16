@@ -367,6 +367,42 @@ startxref
             "Status: Complete"
         ]
 
+    def _get_cutover_tmpl_lines(self) -> List[str]:
+        return [
+            "Cutover Authorization",
+            "Client (Authorizing Party): {{CLIENT_LEGAL_NAME}}",
+            "Provider (Authorizing Party): {{PROVIDER_LEGAL_NAME}}",
+            "Project / System: {{PROJECT_SYSTEM_NAME}}",
+            "Scheduled Cutover Date: {{CUTOVER_DATE}}",
+            "The parties authorize the cutover of {{PROJECT_SYSTEM_NAME}} from the",
+            "staging/testing environment to the production environment, confirming that",
+            "all pre-cutover validation checks for the OneSmarter MIR Relay onboarding",
+            "have been completed and passed.",
+            "Client Authorized Signatory: {{CLIENT_SIGNATORY_NAME}}",
+            "Client Authorization Date: {{CLIENT_AUTHORIZATION_DATE}}",
+            "Provider Authorized Signatory: {{PROVIDER_SIGNATORY_NAME}}",
+            "Provider Authorization Date: {{PROVIDER_AUTHORIZATION_DATE}}",
+            "Status: {{STATUS}}"
+        ]
+
+    def _get_baseline_tmpl_lines(self) -> List[str]:
+        return [
+            "Production Baseline Record",
+            "Client: {{CLIENT_LEGAL_NAME}}",
+            "Provider: {{PROVIDER_LEGAL_NAME}}",
+            "System / Project: {{PROJECT_SYSTEM_NAME}}",
+            "Baseline Version: {{BASELINE_VERSION}}",
+            "Baseline Established Date: {{BASELINE_DATE}}",
+            "This document records the approved production baseline for",
+            "{{PROJECT_SYSTEM_NAME}} under the OneSmarter MIR Relay onboarding, against",
+            "which all future changes will be tracked and measured.",
+            "Baseline Established By: {{ESTABLISHED_BY_NAME}}",
+            "Establishment Date: {{ESTABLISHED_DATE}}",
+            "Baseline Approved By: {{APPROVED_BY_NAME}}",
+            "Approval Date: {{APPROVAL_DATE}}",
+            "Status: {{STATUS}}"
+        ]
+
     # Test 1 — Original untouched template -> PASS
     def test_scenario_01_original_untouched_template(self):
         r_c = self.client.post('/api/clients/', data={'name': 'Test 1 Client'}, content_type='application/json')
@@ -635,8 +671,8 @@ startxref
         r_down1 = self.client.get(f'/api/clients/{cid}/golive/steps/1/download')
         self.assertEqual(r_down1.status_code, 200)
 
-        pdf_bytes = self._create_nda_pdf(self._get_base_tmpl_lines())
-        r_up1 = self.client.post(f'/api/clients/{cid}/golive/steps/1/upload', data=pdf_bytes, content_type='application/octet-stream', HTTP_X_FILENAME='Cutover_Auth.pdf')
+        pdf_bytes_gl1 = self._create_nda_pdf(self._get_cutover_tmpl_lines())
+        r_up1 = self.client.post(f'/api/clients/{cid}/golive/steps/1/upload', data=pdf_bytes_gl1, content_type='application/octet-stream', HTTP_X_FILENAME='Cutover_Auth.pdf')
         self.assertEqual(r_up1.status_code, 200)
         steps = r_up1.json()['state']['steps']
         self.assertTrue(steps[0]['done'])
@@ -646,7 +682,8 @@ startxref
         r_down2 = self.client.get(f'/api/clients/{cid}/golive/steps/2/download')
         self.assertEqual(r_down2.status_code, 200)
 
-        r_up2 = self.client.post(f'/api/clients/{cid}/golive/steps/2/upload', data=pdf_bytes, content_type='application/octet-stream', HTTP_X_FILENAME='Baseline_Compliance.pdf')
+        pdf_bytes_gl2 = self._create_nda_pdf(self._get_baseline_tmpl_lines())
+        r_up2 = self.client.post(f'/api/clients/{cid}/golive/steps/2/upload', data=pdf_bytes_gl2, content_type='application/octet-stream', HTTP_X_FILENAME='Baseline_Compliance.pdf')
         self.assertEqual(r_up2.status_code, 200)
         steps = r_up2.json()['state']['steps']
         self.assertTrue(steps[1]['done'])

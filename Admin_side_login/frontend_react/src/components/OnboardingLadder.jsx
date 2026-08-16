@@ -3,6 +3,16 @@ import StepRung from './StepRung';
 import ClientSelectDropdown from './ClientSelectDropdown';
 import { postStepData } from '../services/api';
 
+function formatDate(dateVal) {
+  if (!dateVal) return 'N/A';
+  const d = new Date(dateVal);
+  if (isNaN(d.getTime())) return dateVal;
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
+
 export default function OnboardingLadder({ client, steps, roles, clients, onSelectClient, onRefresh, onOpenNotes, onOpenRedo, onOpenAddRole }) {
   useEffect(() => {
     const handleFocus = async () => {
@@ -60,16 +70,13 @@ export default function OnboardingLadder({ client, steps, roles, clients, onSele
           </div>
           <p className="sub">Sequential {totalSteps}-step compliance ladder. Completing the active step automatically unlocks the next step.</p>
         </div>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <button className="btn" id="btn-refresh-steps" onClick={onRefresh}>↻ Refresh</button>
-        </div>
       </div>
 
       <div className="metrics">
         <div className="metric">
           <div className="v" id="m-complete">{doneCount} / {totalSteps}</div>
           <div className="l">Steps Complete</div>
-          <div className="d" id="m-started">Started — {new Date(client.created_at).toLocaleDateString()}</div>
+          <div className="d" id="m-started">Started — {formatDate(client.created_at)}</div>
         </div>
         <div className="metric">
           <div className="v" id="m-waiting">{activeStepNum}</div>
@@ -82,7 +89,7 @@ export default function OnboardingLadder({ client, steps, roles, clients, onSele
           <div className="d" id="m-stage">Stage: {stageName}</div>
         </div>
         <div className="metric">
-          <div className="v" id="m-move">{new Date(client.updated_at).toLocaleDateString()}</div>
+          <div className="v" id="m-move">{formatDate(client.updated_at)}</div>
           <div className="l">Last Activity</div>
           <div className="d" id="m-move-d">Activity logged</div>
         </div>

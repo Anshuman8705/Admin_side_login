@@ -342,19 +342,7 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
                     </select>
                   </div>
                 </div>
-                <div style={{ marginTop: 8, fontSize: 12, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-                  <label><input type="checkbox" checked={s6Watched} onChange={(e) => setS6Watched(e.target.checked)} /> Watched folder over SFTP</label>
-                  <label><input type="checkbox" checked={s6Keys} onChange={(e) => setS6Keys(e.target.checked)} /> Keys exchanged</label>
-                  <label><input type="checkbox" checked={s6NoChange} onChange={(e) => setS6NoChange(e.target.checked)} /> No change to client system</label>
-                </div>
-                <div style={{ marginTop: 8 }}>
-                  <input style={{ width: '100%', padding: 4, border: '1px solid var(--line)', fontSize: 12 }} placeholder="Additional transfer notes / watched folder path" value={s6Notes} onChange={(e) => setS6Notes(e.target.value)} />
-                </div>
-                <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <label className="btn tiny" style={{ cursor: 'pointer' }}>
-                    📎 Upload Setup Doc
-                    <input type="file" hidden onChange={handleStandardFileUpload} />
-                  </label>
+                <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
                   <button className="btn tiny primary" onClick={handleStep6Save}>Save &amp; Complete Step 6</button>
                 </div>
               </div>

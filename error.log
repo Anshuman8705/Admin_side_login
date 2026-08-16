@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "C:\Admin_Panel_OneSmarter\Admin_side_login\django_backend\api\views.py", line 1120, in post
+    from api.edi_validator import EDI835Validator
+  File "C:\Admin_Panel_OneSmarter\Admin_side_login\django_backend\api\edi_validator.py", line 10, in <module>
+    import pyx12.params
+ModuleNotFoundError: No module named 'pyx12'

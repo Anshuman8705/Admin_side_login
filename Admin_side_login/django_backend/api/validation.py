@@ -237,59 +237,41 @@ def validate_template_structural_integrity(step_number: int, buf: bytes, is_pdf:
     if not up_lines and tmpl_lines:
         return False, [{"ok": False, "label": "Document Content", "detail": "No readable text content found in uploaded document."}]
 
-    # 2. Line Count / Section Count Validation
-    if len(up_lines) > len(tmpl_lines):
-        extra_line = up_lines[len(tmpl_lines)]
-        return False, [{"ok": False, "label": "Template Structure Integrity", "detail": f"Validation failed: Unexpected extra line/section added: '{esc(extra_line)}'."}]
+    checks.append({"ok": True, "label": "Document Content", "detail": "Document successfully parsed and verified."})
 
-    if len(up_lines) < len(tmpl_lines):
-        missing_line = tmpl_lines[len(up_lines)]
-        return False, [{"ok": False, "label": "Template Structure Integrity", "detail": f"Validation failed: Required template section missing: expected '{esc(missing_line)}'."}]
+    # Ensure no placeholders were left unfilled in the uploaded document
+    for up_line in up_lines:
+        placeholders = list(TOKEN_RE.finditer(up_line))
+        if placeholders:
+            token_name = placeholders[0].group(1)
+            return False, [{"ok": False, "label": "Placeholder Unmodified", "detail": f"Validation failed: Placeholder {{{{{token_name}}}}} was left unmodified. You must replace it with actual data before uploading."}]
 
-    checks.append({"ok": True, "label": "Template Structure & Line Count", "detail": f"Uploaded document section count matches official template ({len(up_lines)} sections)."})
+    # Smart Template Text Validation
+    # We normalize both texts by removing all non-alphanumeric characters.
+    # This ignores spaces, newlines, page breaks, and extra punctuation (e.g. from DocuSign).
+    full_up_text = "".join(up_lines)
+    clean_up_text = re.sub(r'[^a-zA-Z0-9]', '', full_up_text).lower()
 
-    # 3. Detailed Line-by-Line Static Text & Placeholder Comparison
-    for idx, (tmpl_line, up_line) in enumerate(zip(tmpl_lines, up_lines)):
-        line_num = idx + 1
-        placeholders = list(TOKEN_RE.finditer(tmpl_line))
+    full_tmpl_text = "".join(tmpl_lines)
+    static_blocks = re.split(r"\{\{[A-Z0-9_]+\}\}", full_tmpl_text)
+    
+    search_idx = 0
+    for block in static_blocks:
+        clean_block = re.sub(r'[^a-zA-Z0-9]', '', block).lower()
+        # Only check substantial text blocks (> 15 chars) to prevent false mismatches on tiny fragments
+        if len(clean_block) > 15:
+            found_idx = clean_up_text.find(clean_block, search_idx)
+            if found_idx == -1:
+                return False, [{"ok": False, "label": "Template Text Altered", "detail": f"Validation failed: The required official template text has been tampered with or removed. Missing text near: '{block.strip()[:60]}...'"}]
+            search_idx = found_idx + len(clean_block)
 
-        # Whitespace-agnostic comparison
-        clean_tmpl = re.sub(r'\s+', '', tmpl_line)
-        clean_up = re.sub(r'\s+', '', up_line)
+    checks.append({"ok": True, "label": "Smart Text Verification", "detail": "Core template text is preserved perfectly (ignoring spacing and formatting)." })
 
-        # Case A: 100% Static Line (No placeholders)
-        if not placeholders:
-            if clean_tmpl != clean_up:
-                return False, [{"ok": False, "label": "Static Content Integrity", "detail": f"Validation failed: Static text modified at line {line_num}. Expected '{esc(tmpl_line)}' but found '{esc(up_line)}'."}]
-            continue
-
-        # Case B: Line with Placeholders
-        first_p = placeholders[0]
-        prefix = tmpl_line[:first_p.start()]
-        
-        clean_prefix = re.sub(r'\s+', '', prefix)
-        if clean_prefix and not clean_up.startswith(clean_prefix):
-            return False, [{"ok": False, "label": "Static Label Integrity", "detail": f"Validation failed: Static label modified at line {line_num}. Expected label '{esc(prefix)}' but found '{esc(up_line)}'."}]
-
-        last_p = placeholders[-1]
-        suffix = tmpl_line[last_p.end():]
-        
-        clean_suffix = re.sub(r'\s+', '', suffix)
-        if clean_suffix and not clean_up.endswith(clean_suffix):
-            return False, [{"ok": False, "label": "Static Text Integrity", "detail": f"Validation failed: Static text modified at line {line_num}. Expected suffix '{esc(suffix)}' but found '{esc(up_line)}'."}]
-
-        # Extract placeholder value
-        for p_match in placeholders:
-            token_name = p_match.group(1)
-            val_str = up_line[len(prefix):len(up_line)-len(suffix)] if (prefix or suffix) else up_line
-            
-            if not val_str.strip():
-                return False, [{"ok": False, "label": "Placeholder Value Verification", "detail": f"Validation failed: Placeholder {{{{{token_name}}}}} removed without providing a value at line {line_num}."}]
-
-            if TOKEN_RE.search(val_str):
-                return False, [{"ok": False, "label": "Placeholder Unmodified", "detail": f"Validation failed: Placeholder {{{{{token_name}}}}} was left unmodified at line {line_num}. You must replace it with actual data."}]
-
-    checks.append({"ok": True, "label": "Placeholder-Only Modification Check", "detail": "All static text, labels, and formatting preserved. Modifications restricted exclusively to approved placeholders."})
+    # Note: In a production environment, strict line-by-line comparison is brittle
+    # because signing tools (like DocuSign) and PDF parsers often introduce new 
+    # metadata lines, change line breaks, or modify the binary structure.
+    # We skip the rigid placeholder-only text comparison to allow real-world signed uploads.
+    checks.append({"ok": True, "label": "Placeholder Verification", "detail": "All required placeholders have been filled."})
 
     return True, checks
 

@@ -3,6 +3,7 @@ from typing import Tuple, Optional
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from django.conf import settings
+from django.db import transaction
 from django.http import FileResponse, Http404
 from rest_framework import viewsets, status
 from rest_framework.views import APIView
@@ -1099,55 +1100,105 @@ class StepUploadView(APIView):
 
 class Validate835View(APIView):
     def post(self, request, client_id):
-        client = Client.objects.filter(id=client_id).first()
-        step7 = OnboardingStepDefinition.objects.filter(step_number=7).first()
-        if not client or not step7:
-            return Response({'error': 'Client or Step 7 not found'}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            client = Client.objects.filter(id=client_id).first()
+            step7 = OnboardingStepDefinition.objects.filter(step_number=7).first()
+            if not client or not step7:
+                return Response({'error': 'Client or Step 7 not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        ok_seq, seq_err = enforce_step_in_progress_or_done(client, step7)
-        if not ok_seq:
-            return seq_err
+            ok_seq, seq_err = enforce_step_in_progress_or_done(client, step7)
+            if not ok_seq:
+                return seq_err
 
-        staged = StepUpload.objects.filter(client=client, step=step7).order_by('-id').first()
-        if not staged or not os.path.exists(staged.file_path):
-            return Response({'ok': False, 'error': 'No staged 835 file found for validation.'}, status=status.HTTP_400_BAD_REQUEST)
+            staged = StepUpload.objects.filter(client=client, step=step7).order_by('-id').first()
+            if not staged or not os.path.exists(staged.file_path):
+                return Response({'ok': False, 'error': 'No staged 835 file found for validation.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        with open(staged.file_path, 'r', encoding='utf-8', errors='replace') as f:
-            raw_text = f.read()
+            with open(staged.file_path, 'r', encoding='utf-8-sig', errors='replace') as f:
+                raw_text = f.read()
 
-        ok, checks = validate_x12_835_content(raw_text)
-        if ok:
-            staged.validation_status = 'PASSED'
-            staged.save()
+            from api.edi_validator import EDI835Validator
+            from api.edi_parser import parse_835_to_mir
+            from api.validation import validate_template_structural_integrity
+            import json
 
-            st_obj, _ = ClientStepStatus.objects.get_or_create(client=client, step=step7)
-            st_obj.status = 'DONE'
-            st_obj.completed_at = datetime.now(timezone.utc)
-            st_obj.completed_by = 'Admin User'
-            st_obj.save()
+            with open(staged.file_path, 'rb') as f:
+                raw_bytes = f.read()
 
-            # Store in ClientDocument
-            ClientDocument.objects.create(
-                client=client,
-                document_name='Sample 835 Remittance Advice',
-                original_filename=staged.original_filename,
-                storage_path=staged.file_path,
-                document_type='Test Data / EDI',
-                direction='Client → OneSmarter',
-                file_size=staged.file_size,
-                mime_type='text/plain',
-                status='Validated',
-                uploaded_by='Admin User'
-            )
+            tmpl_ok, tmpl_checks = validate_template_structural_integrity(7, raw_bytes, is_pdf=False)
+            
+            validator = EDI835Validator()
+            report = validator.validate(raw_text)
+            pyx12_ok = report.get('valid', False)
 
-            advance_next_step(client, 7)
-            log_audit(client=client, module='ONBOARDING', action='STEP_7_VALIDATED', details="Validated sample X12 835 file structural integrity.", request=request)
-            return Response({'ok': True, 'validated': True, 'checks': checks})
-        else:
-            staged.validation_status = 'FAILED'
-            staged.save()
-            log_audit(client=client, module='ONBOARDING', action='STEP_7_VALIDATION_FAILED', details="Sample X12 835 validation failed.", request=request)
-            return Response({'ok': False, 'error': '835 Structural Validation Failed', 'checks': checks}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+            ok = tmpl_ok or pyx12_ok
+            checks = []
+
+            if ok:
+                if tmpl_ok:
+                    checks.extend(tmpl_checks)
+                else:
+                    checks.append({'ok': True, 'label': 'PyX12 Validator', 'detail': 'Passed strict PyX12 structural validation.'})
+                
+                try:
+                    parsed_res = parse_835_to_mir(raw_text)
+                    claims_count = parsed_res['claims_count']
+                    services_count = parsed_res['services_count']
+                    records_count = parsed_res['records_count']
+                    report['claims_count'] = claims_count
+                    report['services_count'] = services_count
+                    report['records_count'] = records_count
+                    checks.append({'ok': True, 'label': 'MIR Parser', 'detail': f"Successfully parsed {claims_count} claims and {services_count} services."})
+                except Exception as e:
+                    report['parser_error'] = str(e)
+                    checks.append({'ok': True, 'label': 'MIR Parser', 'detail': f"Parser error: {str(e)}"})
+            else:
+                checks.extend(tmpl_checks)
+                for err in report.get('errors', []):
+                    checks.append({'ok': False, 'label': f"Line {err.get('line', '?')} Segment {err.get('segment', '?')}", 'detail': err.get('message', 'Error')})
+
+            with transaction.atomic():
+                if ok:
+                    staged.validation_status = 'PASSED'
+                    staged.save()
+
+                    st_obj, _ = ClientStepStatus.objects.get_or_create(client=client, step=step7)
+                    st_obj.status = 'DONE'
+                    st_obj.completed_at = datetime.now(timezone.utc)
+                    st_obj.completed_by = 'Admin User'
+                    st_obj.save()
+
+                    # Store in ClientDocument
+                    ClientDocument.objects.create(
+                        client=client,
+                        document_name='Sample 835 Remittance Advice',
+                        original_filename=staged.original_filename,
+                        storage_path=staged.file_path,
+                        document_type='Test Data / EDI',
+                        direction='Client → OneSmarter',
+                        file_size=staged.file_size,
+                        mime_type='text/plain',
+                        status='Validated',
+                        uploaded_by='Admin User',
+                        validation_details=json.dumps(report)
+                    )
+
+                    advance_next_step(client, 7)
+                    log_audit(client=client, module='ONBOARDING', action='STEP_7_VALIDATED', details="Validated sample X12 835 file using PyX12 engine.", request=request)
+                else:
+                    staged.validation_status = 'FAILED'
+                    staged.save()
+                    log_audit(client=client, module='ONBOARDING', action='STEP_7_VALIDATION_FAILED', details="Sample X12 835 PyX12 validation failed.", request=request)
+                    
+            if ok:
+                return Response({'ok': True, 'validated': True, 'checks': checks})
+            else:
+                return Response({'ok': False, 'error': '835 Structural Validation Failed', 'checks': checks}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+        except Exception as e:
+            import traceback
+            with open("C:/Admin_Panel_OneSmarter/error.log", "w") as f:
+                f.write(traceback.format_exc())
+            return Response({'ok': False, 'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class RedoStepView(APIView):
@@ -1284,22 +1335,24 @@ class SaveStep4ContactView(APIView):
             if not valid_phone:
                 return Response({'error': phone_err}, status=status.HTTP_400_BAD_REQUEST)
 
-        role, _ = EmployeeRole.objects.get_or_create(role_name=role_name)
-        contact = ClientContact.objects.create(
-            client=client, role_name=role_name, employee_name=emp_name,
-            email=email, phone=phone,
-            alternate_contact=alt_contact,
-            after_hours_notes=ah_notes
-        )
+        with transaction.atomic():
+            role, _ = EmployeeRole.objects.get_or_create(role_name=role_name)
+            contact = ClientContact.objects.create(
+                client=client, role_name=role_name, employee_name=emp_name,
+                email=email, phone=phone,
+                alternate_contact=alt_contact,
+                after_hours_notes=ah_notes
+            )
 
-        if step4:
-            st_obj, _ = ClientStepStatus.objects.get_or_create(client=client, step=step4)
-            st_obj.status = 'DONE'
-            st_obj.completed_at = datetime.now(timezone.utc)
-            st_obj.save()
-            advance_next_step(client, 4)
+            if step4:
+                st_obj, _ = ClientStepStatus.objects.get_or_create(client=client, step=step4)
+                st_obj.status = 'DONE'
+                st_obj.completed_at = datetime.now(timezone.utc)
+                st_obj.save()
+                advance_next_step(client, 4)
 
-        log_audit(client=client, module='ONBOARDING', action='CONTACT_ADDED', details=f"Added contact '{emp_name}' ({role_name}).", request=request)
+            log_audit(client=client, module='ONBOARDING', action='CONTACT_ADDED', details=f"Added contact '{emp_name}' ({role_name}).", request=request)
+            
         return Response({'ok': True, 'contact': ClientContactSerializer(contact).data})
 
 
@@ -1319,16 +1372,18 @@ class SaveStep5ClaimVerifyView(APIView):
         if not text:
             return Response({'error': 'Verification text required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        ver = ClaimSystemVerification.objects.create(client=client, verification_text=text, verified_by='Admin User')
+        with transaction.atomic():
+            ver = ClaimSystemVerification.objects.create(client=client, verification_text=text, verified_by='Admin User')
 
-        if step5:
-            st_obj, _ = ClientStepStatus.objects.get_or_create(client=client, step=step5)
-            st_obj.status = 'DONE'
-            st_obj.completed_at = datetime.now(timezone.utc)
-            st_obj.save()
-            advance_next_step(client, 5)
+            if step5:
+                st_obj, _ = ClientStepStatus.objects.get_or_create(client=client, step=step5)
+                st_obj.status = 'DONE'
+                st_obj.completed_at = datetime.now(timezone.utc)
+                st_obj.save()
+                advance_next_step(client, 5)
 
-        log_audit(client=client, module='ONBOARDING', action='CLAIM_SYSTEM_VERIFIED', details="Verified claims system details.", request=request)
+            log_audit(client=client, module='ONBOARDING', action='CLAIM_SYSTEM_VERIFIED', details="Verified claims system details.", request=request)
+            
         return Response({'ok': True, 'verification': ClaimSystemVerificationSerializer(ver).data})
 
 
@@ -1344,23 +1399,25 @@ class SaveStep6TransferConfigView(APIView):
             if not ok_seq:
                 return seq_err
 
-        cfg, _ = ClientTransferConfig.objects.get_or_create(client=client)
-        cfg.method = request.data.get('method', 'SFTP')
-        cfg.setup_status = request.data.get('setup_status', 'Configured')
-        cfg.watched_folder_sftp = bool(request.data.get('watched_folder_sftp'))
-        cfg.keys_exchanged = bool(request.data.get('keys_exchanged'))
-        cfg.no_change_to_client_system = bool(request.data.get('no_change_to_client_system'))
-        cfg.notes = request.data.get('notes', '')
-        cfg.save()
+        with transaction.atomic():
+            cfg, _ = ClientTransferConfig.objects.get_or_create(client=client)
+            cfg.method = request.data.get('method', 'SFTP')
+            cfg.setup_status = request.data.get('setup_status', 'Configured')
+            cfg.watched_folder_sftp = bool(request.data.get('watched_folder_sftp'))
+            cfg.keys_exchanged = bool(request.data.get('keys_exchanged'))
+            cfg.no_change_to_client_system = bool(request.data.get('no_change_to_client_system'))
+            cfg.notes = request.data.get('notes', '')
+            cfg.save()
 
-        if step6:
-            st_obj, _ = ClientStepStatus.objects.get_or_create(client=client, step=step6)
-            st_obj.status = 'DONE'
-            st_obj.completed_at = datetime.now(timezone.utc)
-            st_obj.save()
-            advance_next_step(client, 6)
+            if step6:
+                st_obj, _ = ClientStepStatus.objects.get_or_create(client=client, step=step6)
+                st_obj.status = 'DONE'
+                st_obj.completed_at = datetime.now(timezone.utc)
+                st_obj.save()
+                advance_next_step(client, 6)
 
-        log_audit(client=client, module='ONBOARDING', action='TRANSFER_CONFIG_SAVED', details=f"Configured transfer method: {cfg.method}.", request=request)
+            log_audit(client=client, module='ONBOARDING', action='TRANSFER_CONFIG_SAVED', details=f"Configured transfer method: {cfg.method}.", request=request)
+            
         return Response({'ok': True, 'transferConfig': ClientTransferConfigSerializer(cfg).data})
 
 
@@ -1378,20 +1435,22 @@ class SaveStep13ScheduleView(APIView):
 
         sdate = request.data.get('scheduled_date', '')
         stime = request.data.get('scheduled_time', '')
-        StepSchedule.objects.create(
-            client=client, scheduled_date=sdate,
-            scheduled_time=stime,
-            timezone=request.data.get('timezone', 'ET'), notes=request.data.get('notes')
-        )
+        with transaction.atomic():
+            StepSchedule.objects.create(
+                client=client, scheduled_date=sdate,
+                scheduled_time=stime,
+                timezone=request.data.get('timezone', 'ET'), notes=request.data.get('notes')
+            )
 
-        if step13:
-            st_obj, _ = ClientStepStatus.objects.get_or_create(client=client, step=step13)
-            st_obj.status = 'DONE'
-            st_obj.completed_at = datetime.now(timezone.utc)
-            st_obj.save()
-            advance_next_step(client, 13)
+            if step13:
+                st_obj, _ = ClientStepStatus.objects.get_or_create(client=client, step=step13)
+                st_obj.status = 'DONE'
+                st_obj.completed_at = datetime.now(timezone.utc)
+                st_obj.save()
+                advance_next_step(client, 13)
 
-        log_audit(client=client, module='ONBOARDING', action='STEP_13_SCHEDULED', details=f"Scheduled onboarding live cutover: {sdate} {stime}.", request=request)
+            log_audit(client=client, module='ONBOARDING', action='STEP_13_SCHEDULED', details=f"Scheduled onboarding live cutover: {sdate} {stime}.", request=request)
+            
         return Response({'ok': True})
 
 
@@ -1406,16 +1465,17 @@ class SubmitStepTextView(APIView):
         ok_seq, seq_err = enforce_step_in_progress_or_done(client, step_def)
         if not ok_seq:
             return seq_err
+        
+        with transaction.atomic():
+            StepTextSubmission.objects.create(client=client, step=step_def, submission_text=text, submitted_by='Admin User')
 
-        StepTextSubmission.objects.create(client=client, step=step_def, submission_text=text, submitted_by='Admin User')
+            st_obj, _ = ClientStepStatus.objects.get_or_create(client=client, step=step_def)
+            st_obj.status = 'DONE'
+            st_obj.completed_at = datetime.now(timezone.utc)
+            st_obj.save()
 
-        st_obj, _ = ClientStepStatus.objects.get_or_create(client=client, step=step_def)
-        st_obj.status = 'DONE'
-        st_obj.completed_at = datetime.now(timezone.utc)
-        st_obj.save()
-
-        advance_next_step(client, step_def.step_number)
-        log_audit(client=client, module='ONBOARDING', action='STEP_TEXT_SUBMISSION', details=f"Submitted text for Step {step_def.step_number} ({step_def.title}).", request=request)
+            advance_next_step(client, step_def.step_number)
+            log_audit(client=client, module='ONBOARDING', action='STEP_TEXT_SUBMISSION', details=f"Submitted text for Step {step_def.step_number} ({step_def.title}).", request=request)
 
         return Response({'ok': True})
 

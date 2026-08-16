@@ -295,7 +295,10 @@ def validate_template_structural_integrity(step_number: int, buf: bytes, is_pdf:
             val_str = up_line[len(prefix):len(up_line)-len(suffix)] if (prefix or suffix) else up_line
             
             if not val_str.strip():
-                return False, [{"ok": False, "label": "Placeholder Value Verification", "detail": f"Validation failed: Placeholder {{{token_name}}} removed without providing a value at line {line_num}."}]
+                return False, [{"ok": False, "label": "Placeholder Value Verification", "detail": f"Validation failed: Placeholder {{{{{token_name}}}}} removed without providing a value at line {line_num}."}]
+
+            if TOKEN_RE.search(val_str):
+                return False, [{"ok": False, "label": "Placeholder Unmodified", "detail": f"Validation failed: Placeholder {{{{{token_name}}}}} was left unmodified at line {line_num}. You must replace it with actual data."}]
 
     checks.append({"ok": True, "label": "Placeholder-Only Modification Check", "detail": "All static text, labels, and formatting preserved. Modifications restricted exclusively to approved placeholders."})
 

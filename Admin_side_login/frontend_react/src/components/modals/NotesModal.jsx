@@ -30,6 +30,7 @@ export default function NotesModal({ isOpen, onClose, clientId, stepKey, stepTit
       await addNote(clientId, stepKey, newNote.trim());
       setNewNote('');
       await loadNotes();
+      onClose(); // Close the modal immediately after saving
     } catch (e) {
       alert('Error: ' + e.message);
     } finally {
@@ -46,7 +47,7 @@ export default function NotesModal({ isOpen, onClose, clientId, stepKey, stepTit
         {notes.length === 0 ? (
           <div style={{ color: 'var(--ink-3)', fontSize: '12px' }}>No notes recorded for this step yet.</div>
         ) : (
-          notes.map((n) => (
+          [...notes].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).map((n) => (
             <div key={n.id} className="note-item">
               <div className="meta">
                 <b>{n.author}</b> · {new Date(n.created_at).toLocaleString()}

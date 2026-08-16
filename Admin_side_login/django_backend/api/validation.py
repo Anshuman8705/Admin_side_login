@@ -48,46 +48,28 @@ def validate_email_address(email_str: str) -> Tuple[bool, str]:
         return False, "Invalid email address format."
     return True, ""
 
+import io
+import PyPDF2
+
 def extract_pdf_lines(buf: bytes) -> List[str]:
     """
-    Extracts ordered text lines from PDF streams (BT...ET text blocks).
-    Cleanly handles uncompressed stream objects, escaped parens \( and \), and standard PDF text lines.
+    Extracts ordered text lines from PDF using PyPDF2.
+    Cleanly handles compressed PDFs and extracts human-readable text.
     """
-    lines = []
-    for raw_line in buf.split(b"\n"):
-        if b"BT" in raw_line or b"ET" in raw_line:
-            continue
-        idx = 0
-        while idx < len(raw_line):
-            s = raw_line.find(b"(", idx)
-            if s == -1:
-                break
-            e = s + 1
-            depth = 1
-            while e < len(raw_line):
-                if raw_line[e:e+2] == b"\\(" or raw_line[e:e+2] == b"\\)":
-                    e += 2
-                    continue
-                if raw_line[e] == ord(b"("):
-                    depth += 1
-                elif raw_line[e] == ord(b")"):
-                    depth -= 1
-                    if depth == 0:
-                        break
-                e += 1
-            if depth == 0:
-                chunk = raw_line[s+1:e]
-                try:
-                    txt = chunk.decode("utf-8", errors="replace")
-                    txt = txt.replace(r"\(", "(").replace(r"\)", ")")
-                    if txt.strip():
-                        lines.append(txt.strip())
-                except Exception:
-                    pass
-                idx = e + 1
-            else:
-                idx = s + 1
-    return lines
+    try:
+        reader = PyPDF2.PdfReader(io.BytesIO(buf))
+        lines = []
+        for page in reader.pages:
+            text = page.extract_text()
+            if text:
+                for line in text.split('\n'):
+                    cleaned = re.sub(r'\s+', ' ', line).strip()
+                    if cleaned:
+                        lines.append(cleaned)
+        return lines
+    except Exception as e:
+        print(f"PyPDF2 Extraction error: {e}")
+        return []
 
 def extract_edi_lines(buf: bytes) -> List[str]:
     """
@@ -271,9 +253,13 @@ def validate_template_structural_integrity(step_number: int, buf: bytes, is_pdf:
         line_num = idx + 1
         placeholders = list(TOKEN_RE.finditer(tmpl_line))
 
+        # Whitespace-agnostic comparison
+        clean_tmpl = re.sub(r'\s+', '', tmpl_line)
+        clean_up = re.sub(r'\s+', '', up_line)
+
         # Case A: 100% Static Line (No placeholders)
         if not placeholders:
-            if tmpl_line != up_line:
+            if clean_tmpl != clean_up:
                 return False, [{"ok": False, "label": "Static Content Integrity", "detail": f"Validation failed: Static text modified at line {line_num}. Expected '{esc(tmpl_line)}' but found '{esc(up_line)}'."}]
             continue
 
@@ -281,12 +267,15 @@ def validate_template_structural_integrity(step_number: int, buf: bytes, is_pdf:
         first_p = placeholders[0]
         prefix = tmpl_line[:first_p.start()]
         
-        if prefix and not up_line.startswith(prefix):
+        clean_prefix = re.sub(r'\s+', '', prefix)
+        if clean_prefix and not clean_up.startswith(clean_prefix):
             return False, [{"ok": False, "label": "Static Label Integrity", "detail": f"Validation failed: Static label modified at line {line_num}. Expected label '{esc(prefix)}' but found '{esc(up_line)}'."}]
 
         last_p = placeholders[-1]
         suffix = tmpl_line[last_p.end():]
-        if suffix and not up_line.endswith(suffix):
+        
+        clean_suffix = re.sub(r'\s+', '', suffix)
+        if clean_suffix and not clean_up.endswith(clean_suffix):
             return False, [{"ok": False, "label": "Static Text Integrity", "detail": f"Validation failed: Static text modified at line {line_num}. Expected suffix '{esc(suffix)}' but found '{esc(up_line)}'."}]
 
         # Extract placeholder value

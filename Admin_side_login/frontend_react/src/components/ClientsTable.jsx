@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-export default function ClientsTable({ clients, onSelectClient, onOpenAddClient }) {
+export default function ClientsTable({ clients, onSelectClient, onOpenAddClient, onDeleteClient }) {
   const [filterStage, setFilterStage] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
 

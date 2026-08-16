@@ -8,6 +8,7 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
   const [s4Name, setS4Name] = useState('');
   const [s4Role, setS4Role] = useState(roles[0]?.role_name || 'Named Contact');
   const [s4Email, setS4Email] = useState('');
+  const [s4CountryCode, setS4CountryCode] = useState('+1');
   const [s4Phone, setS4Phone] = useState('');
   const [s4Alt, setS4Alt] = useState('');
   const [s4Ah, setS4Ah] = useState('');
@@ -126,8 +127,10 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
       alert(`Duplicate entry: An employee contact with email "${s4Email.trim()}" already exists for this client.`);
       return;
     }
-    if (s4Phone.trim() && existing.some(c => (c.phone || '').trim() === s4Phone.trim())) {
-      alert(`Duplicate entry: An employee contact with phone "${s4Phone.trim()}" already exists for this client.`);
+    const fullPhone = s4Phone.trim() ? `${s4CountryCode}${s4Phone.trim()}` : '';
+
+    if (fullPhone && existing.some(c => (c.phone || '').trim() === fullPhone)) {
+      alert(`Duplicate entry: An employee contact with phone "${fullPhone}" already exists for this client.`);
       return;
     }
 
@@ -141,8 +144,8 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
     }
 
     // Phone validation
-    if (s4Phone.trim()) {
-      const digits = s4Phone.replace(/\D/g, '');
+    if (fullPhone) {
+      const digits = fullPhone.replace(/\D/g, '');
       if (digits.length < 7 || digits.length > 15) {
         alert(`Invalid phone length (${digits.length} digits). Standard international phone numbers must be between 7 and 15 digits.`);
         return;
@@ -151,7 +154,7 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
 
     try {
       await postStepData(`/clients/${encodeURIComponent(clientId)}/steps/step_4_contacts/save`, {
-        role_name: s4Role, employee_name: trimmedName, email: s4Email.trim(), phone: s4Phone.trim(),
+        role_name: s4Role, employee_name: trimmedName, email: s4Email.trim(), phone: fullPhone,
         alternate_contact: s4Alt.trim(), after_hours_notes: s4Ah.trim()
       });
       setS4Name('');
@@ -279,7 +282,19 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
                   </div>
                   <div>
                     <label style={{ display: 'block', marginBottom: 2 }}>Phone Number:</label>
-                    <input style={{ width: '100%', padding: 4, border: '1px solid var(--line)' }} placeholder="+1-555-0199" value={s4Phone} onChange={(e) => setS4Phone(e.target.value)} />
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <select 
+                        style={{ padding: 4, border: '1px solid var(--line)', background: 'var(--surface-1)' }}
+                        value={s4CountryCode}
+                        onChange={(e) => setS4CountryCode(e.target.value)}
+                      >
+                        <option value="+1">+1 (US/CA)</option>
+                        <option value="+44">+44 (UK)</option>
+                        <option value="+91">+91 (IN)</option>
+                        <option value="+61">+61 (AU)</option>
+                      </select>
+                      <input style={{ flex: 1, padding: 4, border: '1px solid var(--line)' }} placeholder="555-0199" value={s4Phone} onChange={(e) => setS4Phone(e.target.value)} />
+                    </div>
                   </div>
                   <div>
                     <label style={{ display: 'block', marginBottom: 2 }}>Alternate Contact:</label>

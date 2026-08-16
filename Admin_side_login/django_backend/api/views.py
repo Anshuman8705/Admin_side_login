@@ -1171,7 +1171,14 @@ class RedoStepView(APIView):
         uploads.delete()
 
         if 'contact_manager' in subsequent_types:
-            ClientContact.objects.filter(client=client).delete()
+            if target_num == 4:
+                # Targeted Redo: Only delete the most recently added contact
+                latest_contact = ClientContact.objects.filter(client=client).order_by('-id').first()
+                if latest_contact:
+                    latest_contact.delete()
+            else:
+                # If target step < 4, wipe out all contacts entirely
+                ClientContact.objects.filter(client=client).delete()
         if 'claim_verify' in subsequent_types:
             ClaimSystemVerification.objects.filter(client=client).delete()
         if 'transfer_config' in subsequent_types:
@@ -1183,10 +1190,14 @@ class RedoStepView(APIView):
 
         st_target = ClientStepStatus.objects.filter(client=client, step=target_step).first()
         if st_target:
-            st_target.status = 'IN_PROGRESS'
-            st_target.completed_at = None
-            st_target.completed_by = None
-            st_target.save()
+            # For step 4, if there are still contacts remaining after targeted redo, keep it as DONE
+            if target_num == 4 and ClientContact.objects.filter(client=client).exists():
+                pass
+            else:
+                st_target.status = 'IN_PROGRESS'
+                st_target.completed_at = None
+                st_target.completed_by = None
+                st_target.save()
 
         subsequent_after = OnboardingStepDefinition.objects.filter(step_number__gt=target_num)
         ClientStepStatus.objects.filter(client=client, step__in=subsequent_after).update(status='WAITING', completed_at=None, completed_by=None)

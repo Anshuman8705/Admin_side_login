@@ -6,3 +6,4 @@ python-dotenv>=1.0.1
 pyotp>=2.9.0
 qrcode[pil]>=7.4.2
 pyx12>=2.3.0
+PyPDF2>=3.0.1

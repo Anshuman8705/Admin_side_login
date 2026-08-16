@@ -42,11 +42,11 @@ npm install
 npm run dev
 ```
 
-Then navigate to **http://localhost:3000/** in your browser.
+Then navigate to **http://localhost:5173/** in your browser.
 
 - **Default Admin Credentials**:
   - **Username**: `admin`
-  - **Password**: `password123` (or `onesmarter-admin`)
+  - **Password**: `adminpassword`
 
 ---
 

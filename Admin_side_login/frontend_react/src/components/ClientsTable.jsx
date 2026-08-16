@@ -78,12 +78,13 @@ export default function ClientsTable({ clients, onSelectClient, onOpenAddClient 
             <th>Onboarding Progress</th>
             <th>Owner</th>
             <th>State</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody id="clients-body">
           {filteredClients.length === 0 ? (
             <tr>
-              <td colSpan="7" style={{ textAlign: 'center', padding: '32px', color: 'var(--ink-3)' }}>
+              <td colSpan="8" style={{ textAlign: 'center', padding: '32px', color: 'var(--ink-3)' }}>
                 No clients match the current filter or search criteria.
               </td>
             </tr>
@@ -123,6 +124,19 @@ export default function ClientsTable({ clients, onSelectClient, onOpenAddClient 
                     <span className={`tag ${displayState === 'Healthy' ? 'ok' : displayState === 'Our move' ? 'alert' : 'work'}`}>
                       {displayState}
                     </span>
+                  </td>
+                  <td style={{ textAlign: 'center' }}>
+                    <button 
+                      className="btn tiny" 
+                      style={{ background: 'var(--surface-3)', color: 'var(--alert)' }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteClient && onDeleteClient(c.id);
+                      }}
+                      title="Revoke / Delete Client"
+                    >
+                      Revoke
+                    </button>
                   </td>
                 </tr>
               );

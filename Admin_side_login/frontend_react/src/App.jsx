@@ -12,7 +12,7 @@ import AddRoleModal from './components/modals/AddRoleModal';
 import RedoConfirmModal from './components/modals/RedoConfirmModal';
 import LoginGate from './components/login/LoginGate';
 
-import { fetchClients, fetchClientState, createClient, redoStep, fetchEmployeeRoles, fetchAuditLogs, logoutAdmin } from './services/api';
+import { fetchClients, fetchClientState, createClient, deleteClient, redoStep, fetchEmployeeRoles, fetchAuditLogs, logoutAdmin } from './services/api';
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
@@ -100,6 +100,22 @@ export default function App() {
   const handleSelectClient = (clientId) => {
     setActiveClientId(clientId);
     loadClientWorkflow(clientId);
+  };
+
+  const handleDeleteClient = async (clientId) => {
+    if (!window.confirm("Are you sure you want to permanently delete (revoke) this client?")) return;
+    try {
+      await deleteClient(clientId);
+      loadClients();
+      if (activeClientId === clientId) {
+        setActiveClientId(null);
+        setClientState(null);
+        setActiveNav('clients');
+      }
+    } catch (err) {
+      console.error('Failed to delete client:', err);
+      alert('Failed to delete client: ' + err.message);
+    }
   };
 
   const handleClientCreated = (newClient) => {
@@ -205,6 +221,7 @@ export default function App() {
               clients={clients}
               onSelectClient={handleSelectClient}
               onOpenAddClient={() => setIsAddClientOpen(true)}
+              onDeleteClient={handleDeleteClient}
             />
           )}
 

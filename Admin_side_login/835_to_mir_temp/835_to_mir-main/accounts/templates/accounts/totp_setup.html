@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block title %}
+Authenticator Setup
+{% endblock %}
+
+
+{% block content %}
+
+<div class="container">
+
+    <div class="card">
+
+        {% if verified %}
+
+            <h1>
+                Authenticator Enabled
+            </h1>
+
+            <p>
+                Your authenticator has been successfully configured.
+            </p>
+
+
+            <div class="recovery">
+
+                <h3>
+                    Recovery Codes
+                </h3>
+
+                <p>
+                    Save these codes somewhere safe.
+                    Each recovery code should only be used once.
+                </p>
+
+
+                {% for code in recovery_codes %}
+
+                    <code>
+                        {{ code }}
+                    </code>
+
+                {% endfor %}
+
+            </div>
+
+
+            <br>
+
+
+            <a href="{% url 'home' %}">
+                Continue to Home
+            </a>
+
+        {% else %}
+
+            <h1>
+                Set Up Authenticator
+            </h1>
+
+            <p>
+                Open Google Authenticator,
+                Microsoft Authenticator, Authy,
+                or another TOTP application.
+            </p>
+
+
+            <p>
+                Scan this QR code:
+            </p>
+
+
+            <div class="qr">
+
+                <img
+                    src="data:image/png;base64,{{ qr_code }}"
+                    alt="TOTP QR Code"
+                >
+
+            </div>
+
+
+            <p>
+                If you cannot scan the QR code,
+                manually enter this secret:
+            </p>
+
+
+            <div class="secret">
+
+                {{ secret }}
+
+            </div>
+
+
+            <br>
+
+
+            <h3>
+                Enter the 6-digit code
+            </h3>
+
+
+            <form method="POST">
+
+                {% csrf_token %}
+
+
+                <input
+                    type="text"
+                    name="code"
+                    placeholder="123456"
+                    maxlength="6"
+                    pattern="[0-9]{6}"
+                    autocomplete="one-time-code"
+                    required
+                >
+
+
+                <button type="submit">
+
+                    Verify Authenticator
+
+                </button>
+
+            </form>
+
+        {% endif %}
+
+    </div>
+
+</div>
+
+{% endblock %}

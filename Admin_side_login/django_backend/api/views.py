@@ -10,6 +10,9 @@ from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
 
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB limit
+EVID_DIR = os.path.join(settings.BASE_DIR, 'evidence_uploads')
+
 from .models import (
     Client, OnboardingPhase, OnboardingStepDefinition, ClientStepStatus,
     StepUpload, StepNote, EmployeeRole, ClientContact, ClaimSystemVerification,
@@ -383,6 +386,19 @@ class ClientViewSet(viewsets.ModelViewSet):
         claims_sys = request.data.get('claimsSystem') or request.data.get('claims_system') or 'Vendor hosted'
         owner = request.data.get('owner') or 'Vikram J.'
         contact_info = request.data.get('contactInfo') or request.data.get('contact_info') or ''
+        contact_info = contact_info.strip()
+
+        if contact_info:
+            from django.core.validators import validate_email
+            from django.core.exceptions import ValidationError
+            try:
+                validate_email(contact_info)
+            except ValidationError:
+                return Response({'error': f"Invalid email format: '{contact_info}' is not a valid email address."}, status=status.HTTP_400_BAD_REQUEST)
+                
+            if Client.objects.filter(contact_info__iexact=contact_info).exists():
+                return Response({'error': f"Duplicate email: A client with the email '{contact_info}' already exists."}, status=status.HTTP_400_BAD_REQUEST)
+
         stage = request.data.get('stage') or 'onboarding'
         state_str = request.data.get('state') or ('Healthy' if stage == 'production' else 'Waiting on client')
 

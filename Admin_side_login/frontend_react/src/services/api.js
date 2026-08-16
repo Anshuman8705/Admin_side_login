@@ -71,6 +71,15 @@ export async function createClient(clientPayload) {
   return data;
 }
 
+export async function deleteClient(clientId) {
+  const res = await fetch(`${BASE_URL}/clients/${encodeURIComponent(clientId)}/`, {
+    method: 'DELETE',
+    headers: getAuthHeaders()
+  });
+  if (!res.ok) throw new Error('Failed to delete client');
+  return true;
+}
+
 export async function downloadTemplateFile(clientId, stepKey, title, ext) {
   const res = await fetch(`${BASE_URL}/download/${encodeURIComponent(clientId)}/${encodeURIComponent(stepKey)}`, {
     headers: getAuthHeaders()
@@ -98,7 +107,11 @@ export async function uploadStepFile(clientId, stepKey, file) {
     body: file
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Upload failed');
+  if (!res.ok) {
+    const err = new Error(data.error || 'Upload failed');
+    err.checks = data.checks || [];
+    throw err;
+  }
   return data;
 }
 

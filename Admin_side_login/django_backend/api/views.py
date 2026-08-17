@@ -10,7 +10,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
-from django.core.mail import send_mail
+from django.core.mail import send_mail, EmailMessage
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB limit
 EVID_DIR = os.path.join(settings.BASE_DIR, 'evidence_uploads')
@@ -1363,13 +1363,14 @@ class SendFTPView(APIView):
                 client_email = client.contact_info
                 if client_email:
                     try:
-                        send_mail(
+                        email = EmailMessage(
                             subject=f"FTP Verification Completed for {client.name}",
-                            message=f"Hello,\n\nThe FTP verification payload has been successfully validated for {client.name}.\n\nBest regards,\nOneSmarter Onboarding Team",
+                            body=f"Hello,\n\nThe FTP verification payload has been successfully validated for {client.name}.\nPlease find the test payload attached.\n\nBest regards,\nOneSmarter Onboarding Team",
                             from_email=settings.DEFAULT_FROM_EMAIL if hasattr(settings, 'DEFAULT_FROM_EMAIL') else 'noreply@onesmarter.com',
-                            recipient_list=[client_email],
-                            fail_silently=True,
+                            to=[client_email],
                         )
+                        email.attach_file(test_file_path)
+                        email.send(fail_silently=True)
                     except Exception as e:
                         # Log but don't fail the step if SMTP is not configured
                         print(f"Warning: Failed to send email to {client_email}: {e}")

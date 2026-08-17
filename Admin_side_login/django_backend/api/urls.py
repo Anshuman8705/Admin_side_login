@@ -2,6 +2,7 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
     ClientViewSet, StepUploadView, Validate835View, RedoStepView, CompleteStepDirectView,
+    SendFTPView,
     SaveStep4ContactView, SaveStep5ClaimVerifyView, SaveStep6TransferConfigView,
     SaveStep13ScheduleView, SubmitStepTextView, StepNotesView, EmployeeRolesView,
     DownloadTemplateView, ResetDemoView, CleanupEvidenceView, AuditLogListView,
@@ -74,7 +75,7 @@ urlpatterns = [
     path('clients/<str:client_id>/steps/step_4_contacts/save', SaveStep4ContactView.as_view(), name='save-step4'),
     path('clients/<str:client_id>/steps/step_5_claim_sys/save', SaveStep5ClaimVerifyView.as_view(), name='save-step5'),
     path('clients/<str:client_id>/steps/step_6_transfer_method/save', SaveStep6TransferConfigView.as_view(), name='save-step6'),
-    path('clients/<str:client_id>/steps/step_11_send_ftp/send', CompleteStepDirectView.as_view(), {'step_key': 'step_11_send_ftp'}),
+    path('clients/<str:client_id>/steps/step_11_send_ftp/send', SendFTPView.as_view(), name='send-ftp-step11'),
     path('clients/<str:client_id>/steps/step_13_schedule/save', SaveStep13ScheduleView.as_view(), name='save-step13'),
     path('clients/<str:client_id>/steps/<str:step_key>/submit-text', SubmitStepTextView.as_view(), name='submit-step-text'),
     

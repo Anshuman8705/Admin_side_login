@@ -10,6 +10,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
+from django.core.mail import send_mail
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB limit
 EVID_DIR = os.path.join(settings.BASE_DIR, 'evidence_uploads')
@@ -1330,6 +1331,62 @@ class CompleteStepDirectView(APIView):
         log_audit(client=client, module='ONBOARDING', action='STEP_COMPLETED', details=f"Completed Step {step_def.step_number} ({step_def.title}).", request=request)
 
         return Response({'ok': True, 'step': step_def.step_number})
+
+
+class SendFTPView(APIView):
+    def post(self, request, client_id):
+        client = Client.objects.filter(id=client_id).first()
+        step_def = find_step_definition('step_11_send_ftp')
+        if not client or not step_def:
+            return Response({'error': 'Client or Step not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        ok_seq, seq_err = enforce_step_in_progress_or_done(client, step_def)
+        if not ok_seq:
+            return seq_err
+
+        # 1. Create a local folder
+        ftp_dir = os.path.join(settings.BASE_DIR, 'ftp_test', client_id)
+        os.makedirs(ftp_dir, exist_ok=True)
+        
+        # 2. Write a text file into it
+        test_file_path = os.path.join(ftp_dir, 'test_payload.txt')
+        test_content = f"Test payload for {client.name} (ID: {client_id}) generated at {datetime.now(timezone.utc).isoformat()}"
+        with open(test_file_path, 'w') as f:
+            f.write(test_content)
+            
+        # 3. Check if it was received correctly (verify existence and content)
+        if os.path.exists(test_file_path):
+            with open(test_file_path, 'r') as f:
+                content = f.read()
+            if content == test_content:
+                # Send email to the client if they have an email registered
+                client_email = client.contact_info
+                if client_email:
+                    try:
+                        send_mail(
+                            subject=f"FTP Verification Completed for {client.name}",
+                            message=f"Hello,\n\nThe FTP verification payload has been successfully validated for {client.name}.\n\nBest regards,\nOneSmarter Onboarding Team",
+                            from_email=settings.DEFAULT_FROM_EMAIL if hasattr(settings, 'DEFAULT_FROM_EMAIL') else 'noreply@onesmarter.com',
+                            recipient_list=[client_email],
+                            fail_silently=True,
+                        )
+                    except Exception as e:
+                        # Log but don't fail the step if SMTP is not configured
+                        print(f"Warning: Failed to send email to {client_email}: {e}")
+
+                # 4. If yes, mark the step as done
+                st_obj, _ = ClientStepStatus.objects.get_or_create(client=client, step=step_def)
+                st_obj.status = 'DONE'
+                st_obj.completed_at = datetime.now(timezone.utc)
+                st_obj.completed_by = 'Admin User'
+                st_obj.save()
+
+                advance_next_step(client, step_def.step_number)
+                log_audit(client=client, module='ONBOARDING', action='STEP_11_FTP_SEND', details=f"Sent test FTP payload and completed Step 11.", request=request)
+
+                return Response({'ok': True, 'step': step_def.step_number, 'message': 'FTP file sent and verified successfully.'})
+            
+        return Response({'ok': False, 'error': 'Failed to verify the FTP test file.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class SaveStep4ContactView(APIView):

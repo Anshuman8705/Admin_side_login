@@ -15,11 +15,26 @@ function formatDate(dateVal) {
 
 export default function OnboardingLadder({ client, steps, roles, clients, onSelectClient, onRefresh, onOpenNotes, onOpenRedo, onOpenAddRole }) {
   useEffect(() => {
+    const handleStorage = (e) => {
+      if (e.key === 'cross_tab_refresh') {
+        sessionStorage.removeItem('pending_return_step');
+        onRefresh();
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, [onRefresh]);
+
+  useEffect(() => {
     const handleFocus = async () => {
       const pendingKey = sessionStorage.getItem('pending_return_step');
       if (pendingKey && client) {
+        if (pendingKey === 'step_8_mapping') {
+          // Do not prompt for step 8! It is smart and completes itself via the Save button.
+          return;
+        }
         sessionStorage.removeItem('pending_return_step');
-        const confirmed = window.confirm(`Welcome back! Did you finish work in the tool for ${pendingKey.replace('_', ' ').toUpperCase()}? Click OK to mark this step complete.`);
+        const confirmed = window.confirm(`Welcome back! Did you finish work in the tool for ${pendingKey.replace(/_/g, ' ').toUpperCase()}? Click OK to mark this step complete.`);
         if (confirmed) {
           try {
             await postStepData(`/clients/${encodeURIComponent(client.id)}/onboarding/steps/${encodeURIComponent(pendingKey)}/complete`, {});

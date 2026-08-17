@@ -24,6 +24,7 @@ INSTALLED_APPS = [
     'corsheaders',
     # Local app
     'api.apps.ApiConfig',
+    'mir_mapper.apps.MirMapperConfig',
 ]
 
 MIDDLEWARE = [

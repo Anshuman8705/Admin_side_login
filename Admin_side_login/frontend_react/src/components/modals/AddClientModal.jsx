@@ -52,6 +52,14 @@ export default function AddClientModal({ isOpen, onClose, onClientCreated, exist
       return;
     }
 
+    if (email.trim()) {
+      const emailPattern = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/;
+      if (!emailPattern.test(email.trim())) {
+        setErrorMsg('Invalid email address format.');
+        return;
+      }
+    }
+
     setLoading(true);
     try {
       const response = await createClient({

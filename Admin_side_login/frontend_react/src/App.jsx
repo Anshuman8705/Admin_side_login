@@ -11,10 +11,12 @@ import NotesModal from './components/modals/NotesModal';
 import AddRoleModal from './components/modals/AddRoleModal';
 import RedoConfirmModal from './components/modals/RedoConfirmModal';
 import LoginGate from './components/login/LoginGate';
+import MappingApp from './components/MappingTool/MappingApp';
 
 import { fetchClients, fetchClientState, createClient, deleteClient, redoStep, fetchEmployeeRoles, fetchAuditLogs, logoutAdmin } from './services/api';
 
 export default function App() {
+  const isMappingRoute = window.location.pathname.startsWith('/mapping');
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     return Boolean(localStorage.getItem('onesmarter_admin_token'));
   });
@@ -177,6 +179,10 @@ export default function App() {
 
   if (!isAuthenticated) {
     return <LoginGate onLoginSuccess={handleLoginSuccess} />;
+  }
+
+  if (isMappingRoute) {
+    return <MappingApp />;
   }
 
   return (

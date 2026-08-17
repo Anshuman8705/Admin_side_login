@@ -18,7 +18,7 @@ if %errorlevel% neq 0 (
 )
 
 :: 2. Verify Node.js / NPM is installed
-npm --version >nul 2>&1
+call npm --version >nul 2>&1
 if %errorlevel% neq 0 (
     color 0C
     echo [ERROR] Node.js / NPM is not installed or not in your system PATH.

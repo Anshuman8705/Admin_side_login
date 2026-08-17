@@ -390,12 +390,6 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
                   <button className="btn tiny primary" onClick={() => launchRedirect(`/mapping?client=${encodeURIComponent(clientId)}`, 'step_8_mapping')}>
                     Start Mapping ↗
                   </button>
-                  <button className="btn tiny success" onClick={async () => {
-                    try {
-                      await postStepData(`/clients/${encodeURIComponent(clientId)}/onboarding/steps/step_8_mapping/complete`, {});
-                      onRefresh();
-                    } catch (err) { alert('Error: ' + err.message); }
-                  }}>✓ Complete Step 8</button>
                 </div>
               </div>
             )}

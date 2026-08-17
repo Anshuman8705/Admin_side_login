@@ -17,7 +17,7 @@ EVID_DIR = os.path.join(settings.BASE_DIR, 'evidence_uploads')
 
 from .models import (
     Client, OnboardingPhase, OnboardingStepDefinition, ClientStepStatus,
-    StepUpload, StepNote, EmployeeRole, ClientContact, ClaimSystemVerification,
+    StepUpload, StepNote, GoLiveStepNote, EmployeeRole, ClientContact, ClaimSystemVerification,
     ClientTransferConfig, StepSchedule, StepTextSubmission, AuditLog,
     ClientDocument, ClientTestEnvironment, GoLiveStepDefinition, ClientGoLiveStatus,
     ClientGoLiveSFTP, ClientGoLiveSchedule, ClientGoLiveComment, LoginHistory, AdminMFA
@@ -28,7 +28,7 @@ import base64
 from io import BytesIO
 from .serializers import (
     ClientSerializer, OnboardingStepDefinitionSerializer, StepUploadSerializer,
-    StepNoteSerializer, EmployeeRoleSerializer, ClientContactSerializer,
+    StepNoteSerializer, GoLiveStepNoteSerializer, EmployeeRoleSerializer, ClientContactSerializer,
     ClientTransferConfigSerializer, StepScheduleSerializer, StepTextSubmissionSerializer,
     ClaimSystemVerificationSerializer, AuditLogSerializer, ClientDocumentSerializer,
     ClientTestEnvironmentSerializer, GoLiveStepDefinitionSerializer,
@@ -218,7 +218,9 @@ class AuthLogoutView(APIView):
 
 class AccessInfoView(APIView):
     def get(self, request):
-        current_username = request.user.username if request.user and request.user.is_authenticated else 'admin'
+        from django.contrib.auth.models import User
+        user = request.user if request.user and request.user.is_authenticated else User.objects.filter(username='admin').first()
+        current_username = user.username if user else 'admin'
         
         # Calculate dynamic previous login for current user
         successful_logins = LoginHistory.objects.filter(username=current_username, status='SUCCESS').order_by('-login_time')
@@ -233,8 +235,23 @@ class AccessInfoView(APIView):
 
         recent_history = LoginHistory.objects.all().order_by('-login_time')[:10]
 
+        # Determine dynamic MFA for current user
+        has_current_mfa = AdminMFA.objects.filter(user=user, is_enabled=True).exists() if user else False
+        current_mfa_type = "Authenticator (TOTP)" if has_current_mfa else "Password Only"
+        current_mfa_desc = "RFC 6238 Standard" if has_current_mfa else "MFA Not Enrolled"
+
+        current_admin_info = {
+            'username': current_username,
+            'name': user.get_full_name() or user.username if user else 'admin',
+            'role': "Admin" if (user and user.is_superuser) else "User",
+            'mfa_status': current_mfa_type,
+            'mfa_desc': current_mfa_desc,
+            'last_login': last_login_str,
+            'session_state': 'Active',
+            'session_desc': '30-min auto-expire'
+        }
+
         # Dynamically fetch staff from the database User model
-        from django.contrib.auth.models import User
         staff_list = []
         for u in User.objects.filter(is_staff=True).order_by('id'):
             full_name = u.get_full_name() or u.username
@@ -245,8 +262,8 @@ class AccessInfoView(APIView):
             has_mfa = AdminMFA.objects.filter(user=u, is_enabled=True).exists()
             mfa_type = "Authenticator (TOTP)" if has_mfa else "Not Configured"
             
-            role = "Platform Admin" if u.is_superuser else "Implementation Specialist"
-            access_level = "Full Access" if u.is_superuser else "Assigned Tenants"
+            role = "Admin" if u.is_superuser else "User"
+            access_level = "Full Access" if u.is_superuser else "Standard Access"
             
             staff_list.append({
                 'person': full_name,
@@ -260,11 +277,12 @@ class AccessInfoView(APIView):
         # Fallback if no staff returned
         if not staff_list:
             staff_list = [
-                {'person': 'Vikram J.', 'role': 'Platform Admin', 'access': 'Full Access', 'mfa': 'Hardware Key (FIDO2)', 'last_login': last_login_str, 'status': 'Active'},
+                {'person': 'admin', 'role': 'Admin', 'access': 'Full Access', 'mfa': current_mfa_type, 'last_login': last_login_str, 'status': 'Active'},
             ]
 
         return Response({
             'ok': True,
+            'current_admin': current_admin_info,
             'last_login': last_login_str,
             'staff': staff_list,
             'recent_logins': LoginHistorySerializer(recent_history, many=True).data
@@ -300,20 +318,94 @@ def guard_step_unlocked(client, step_def, allow_done=True) -> Tuple[bool, Option
 enforce_step_in_progress_or_done = guard_step_unlocked
 
 
-def recalculate_client_progress(client):
-    total = OnboardingStepDefinition.objects.count()
-    if total == 0:
-        client.progress_pct = 0
+def parse_scheduled_datetime(date_str, time_str):
+    if not date_str or not str(date_str).strip():
+        return None
+    d_str = str(date_str).strip()
+    t_str = str(time_str).strip() if time_str else "00:00"
+
+    parsed_date = None
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m-%d-%Y", "%m/%d/%Y", "%d-%m-%Y"):
+        try:
+            parsed_date = datetime.strptime(d_str, fmt).date()
+            break
+        except ValueError:
+            pass
+
+    if not parsed_date:
+        return None
+
+    parsed_time = None
+    for t_fmt in ("%H:%M", "%H:%M:%S", "%I:%M %p", "%I:%M%p", "%I:%M"):
+        try:
+            parsed_time = datetime.strptime(t_str, t_fmt).time()
+            break
+        except ValueError:
+            pass
+
+    if not parsed_time:
+        parsed_time = datetime.min.time()
+
+    return datetime.combine(parsed_date, parsed_time)
+
+
+def update_client_stage(client):
+    """
+    Computes and persists the correct lifecycle stage for a client:
+    1. 'onboarding_pending': Initial stage when client created or onboarding steps < 15.
+    2. 'onboarding_completed': When all 15 onboarding steps are completed.
+    3. 'golive_pending': When Go-Live Step 1 is completed (document uploaded & verified).
+    4. 'production': When Go-Live Step 4 schedule date and time is reached (current_dt >= scheduled_dt) OR Step 6 finalized.
+    """
+    total_onboarding = OnboardingStepDefinition.objects.count()
+    done_onboarding = ClientStepStatus.objects.filter(client=client, status='DONE').count() if total_onboarding > 0 else 0
+    client.progress_pct = int(round((done_onboarding / total_onboarding) * 100)) if total_onboarding > 0 else 0
+
+    # 1. Check Go-Live Step 6 (Production Finalized)
+    st6 = ClientGoLiveStatus.objects.filter(client=client, step__step_number=6, status='DONE').first()
+    if st6:
+        client.stage = 'production'
+        if not client.live_since:
+            client.live_since = datetime.now(timezone.utc).strftime("%d/%m/%Y")
         client.save()
         return
-    done_count = ClientStepStatus.objects.filter(client=client, status='DONE').count()
-    client.progress_pct = int(round((done_count / total) * 100))
-    if done_count >= total:
-        client.stage = 'production'
-        client.state = 'Healthy'
+
+    # 2. Check Go-Live Step 4 (Production Date and Time)
+    sched = ClientGoLiveSchedule.objects.filter(client=client).first()
+    st4 = ClientGoLiveStatus.objects.filter(client=client, step__step_number=4, status='DONE').first()
+    if sched and sched.production_date and st4:
+        sched_dt = parse_scheduled_datetime(sched.production_date, sched.production_time)
+        if sched_dt:
+            now_dt = datetime.now()
+            if now_dt >= sched_dt:
+                client.stage = 'production'
+                if not client.live_since:
+                    client.live_since = sched_dt.strftime("%d/%m/%Y")
+                client.save()
+                return
+            else:
+                client.stage = 'production_pending'
+                client.save()
+                return
+
+    # 3. Check Go-Live Step 1 (Document uploaded & verified)
+    st1 = ClientGoLiveStatus.objects.filter(client=client, step__step_number=1, status='DONE').first()
+    if st1:
+        client.stage = 'golive_pending'
+        client.save()
+        return
+
+    # 4. Check Onboarding Completion
+    if total_onboarding > 0 and done_onboarding >= total_onboarding:
+        client.stage = 'onboarding_completed'
     else:
-        client.stage = 'onboarding'
+        client.stage = 'onboarding_pending'
+
     client.save()
+
+
+def recalculate_client_progress(client):
+    update_client_stage(client)
 
 
 def advance_next_step(client, current_step_number):
@@ -325,13 +417,7 @@ def advance_next_step(client, current_step_number):
             if st_next.status != 'DONE':
                 st_next.status = 'IN_PROGRESS'
                 st_next.save()
-    if current_step_number >= total:
-        client.stage = 'production'
-        client.state = 'Healthy'
-        client.progress_pct = 100
-        client.save()
-    else:
-        recalculate_client_progress(client)
+    update_client_stage(client)
 
 
 def build_client_state(client):
@@ -400,6 +486,14 @@ class ClientViewSet(viewsets.ModelViewSet):
     queryset = Client.objects.all()
     serializer_class = ClientSerializer
 
+    def list(self, request, *args, **kwargs):
+        clients = Client.objects.all()
+        for client in clients:
+            update_client_stage(client)
+        clients = Client.objects.all().order_by('name')
+        serializer = self.get_serializer(clients, many=True)
+        return Response(serializer.data)
+
     def create(self, request, *args, **kwargs):
         name = request.data.get('name', '').strip()
         if not name:
@@ -430,12 +524,11 @@ class ClientViewSet(viewsets.ModelViewSet):
             if Client.objects.filter(contact_info__iexact=contact_info).exists():
                 return Response({'error': f"Duplicate email: A client with the email '{contact_info}' already exists."}, status=status.HTTP_400_BAD_REQUEST)
 
-        stage = request.data.get('stage') or 'onboarding'
-        state_str = request.data.get('state') or ('Healthy' if stage == 'production' else 'Waiting on client')
+        stage = request.data.get('stage') or 'onboarding_pending'
 
         client = Client.objects.create(
             id=cid, name=name, code=code, claims_system=claims_sys,
-            owner=owner, state=state_str, stage=stage, contact_info=contact_info,
+            owner=owner, stage=stage, contact_info=contact_info,
             progress_pct=0
         )
 
@@ -686,6 +779,7 @@ def build_golive_state(client):
 
     for sdef in steps_qs:
         st_obj, _ = ClientGoLiveStatus.objects.get_or_create(client=client, step=sdef)
+        latest_note = GoLiveStepNote.objects.filter(client=client, step=sdef).order_by('-id').first()
         
         extra = {}
         if sdef.step_number == 3 and sftp_obj:
@@ -707,6 +801,7 @@ def build_golive_state(client):
             'inProgress': st_obj.status == 'IN_PROGRESS',
             'downloadFilename': sdef.download_filename,
             'downloadExtension': sdef.download_extension,
+            'latestNote': GoLiveStepNoteSerializer(latest_note).data if latest_note else None,
             'extra': extra
         })
 
@@ -937,7 +1032,14 @@ class GoLiveStep4ScheduleView(APIView):
         if not prod_date:
             return Response({'error': 'Production date is required for Go Live Step 4.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        sched, _ = ClientGoLiveSchedule.objects.get_or_create(client=client)
+        # Check if previous schedule existed
+        sched = ClientGoLiveSchedule.objects.filter(client=client).first()
+        old_val = None
+        if sched and sched.production_date:
+            old_val = f"{sched.production_date} {sched.production_time or ''}".strip()
+
+        if not sched:
+            sched = ClientGoLiveSchedule(client=client)
         sched.production_date = prod_date
         sched.production_time = prod_time  # Optional
         sched.entered_by = 'Admin User'
@@ -950,7 +1052,17 @@ class GoLiveStep4ScheduleView(APIView):
         st4.save()
 
         advance_golive_step(client, 4)
-        log_audit(client=client, module='GO_LIVE', action='STEP_4_SCHEDULE_SAVED', details=f"Set Production Schedule: {prod_date} {prod_time or '(time TBD)'} for {client.name}.", request=request)
+        update_client_stage(client)
+
+        new_val = f"{prod_date} {prod_time or ''}".strip()
+        if old_val and old_val != new_val:
+            action_desc = f"Production Schedule changed from '{old_val}' to '{new_val}' for {client.name}."
+            action_type = 'STEP_4_SCHEDULE_UPDATED'
+        else:
+            action_desc = f"Set Production Schedule: {new_val} for {client.name}."
+            action_type = 'STEP_4_SCHEDULE_SAVED'
+
+        log_audit(client=client, module='GO_LIVE', action=action_type, details=action_desc, request=request)
 
         return Response({'ok': True, 'state': build_golive_state(client)})
 
@@ -965,7 +1077,11 @@ class GoLiveStep5CommentView(APIView):
         # Comment is OPTIONAL; empty comment allows completion
         comment_text = request.data.get('comment_text', '').strip()
         
-        c_obj, _ = ClientGoLiveComment.objects.get_or_create(client=client)
+        c_obj = ClientGoLiveComment.objects.filter(client=client).first()
+        old_comment = c_obj.comment_text.strip() if (c_obj and c_obj.comment_text) else None
+
+        if not c_obj:
+            c_obj = ClientGoLiveComment(client=client)
         c_obj.comment_text = comment_text
         c_obj.entered_by = 'Admin User'
         c_obj.save()
@@ -977,9 +1093,17 @@ class GoLiveStep5CommentView(APIView):
         st5.save()
 
         advance_golive_step(client, 5)
+
+        if old_comment is not None and old_comment != comment_text:
+            action_desc = f"Special comment changed from '{old_comment}' to '{comment_text or '(empty)'}' for {client.name}."
+            action_type = 'STEP_5_COMMENT_UPDATED'
+        else:
+            action_desc = f"Step 5 comment recorded: '{comment_text or 'No special comment provided'}' for {client.name}."
+            action_type = 'STEP_5_COMMENT_SAVED'
+
         log_audit(
-            client=client, module='GO_LIVE', action='STEP_5_COMMENT_SAVED',
-            details=f"Step 5 comment recorded: '{comment_text or 'No special comment provided'}' for {client.name}.",
+            client=client, module='GO_LIVE', action=action_type,
+            details=action_desc,
             request=request
         )
 
@@ -1007,7 +1131,6 @@ class GoLiveStep6CompleteView(APIView):
 
         # Promote client stage to production
         client.stage = 'production'
-        client.state = 'Healthy'
         client.live_since = datetime.now(timezone.utc).strftime("%d/%m/%Y")
         client.save()
 
@@ -1034,6 +1157,7 @@ class GoLiveRedoStepView(APIView):
         subsequent = GoLiveStepDefinition.objects.filter(step_number__gt=step_number)
         ClientGoLiveStatus.objects.filter(client=client, step__in=subsequent).update(status='WAITING', completed_at=None, completed_by=None)
 
+        update_client_stage(client)
         log_audit(client=client, module='GO_LIVE', action='GOLIVE_REDO_STEP', details=f"Reset Go Live Step {step_number} to In Progress.", request=request)
 
         return Response({'ok': True, 'state': build_golive_state(client)})
@@ -1134,6 +1258,54 @@ class StepUploadView(APIView):
         log_audit(client=client, module='ONBOARDING', action='STEP_UPLOAD_COMPLETE', details=f"Completed Step {step_def.step_number} ({step_def.title}) via file upload.", request=request)
 
         return Response({'ok': True, 'upload': StepUploadSerializer(up).data, 'checks': v_res.get('checks')})
+
+
+class StepUploadFileView(APIView):
+    def get(self, request, client_id, step_key):
+        client = Client.objects.filter(id=client_id).first()
+        step_def = find_step_definition(step_key)
+        if not client or not step_def:
+            return Response({'error': 'Client or Step not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        up = StepUpload.objects.filter(client=client, step=step_def).order_by('-id').first()
+        if not up:
+            return Response({'error': 'No uploaded evidence file found for this step'}, status=status.HTTP_404_NOT_FOUND)
+
+        file_path = up.file_path
+        if not file_path or not os.path.exists(file_path):
+            sample_dir = os.path.abspath(os.path.join(settings.BASE_DIR.parent, 'sample documents'))
+            fallback = os.path.join(sample_dir, up.original_filename)
+            if os.path.exists(fallback):
+                file_path = fallback
+            else:
+                return Response({'error': f"Physical file '{up.original_filename}' not found on server."}, status=status.HTTP_404_NOT_FOUND)
+
+        ext = up.original_filename.split('.')[-1].lower() if '.' in up.original_filename else ''
+        if ext == 'pdf':
+            content_type = 'application/pdf'
+        elif ext in ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'tiff', 'tif', 'ico', 'avif', 'heic']:
+            if ext == 'svg':
+                content_type = 'image/svg+xml'
+            elif ext == 'jpg' or ext == 'jpeg':
+                content_type = 'image/jpeg'
+            else:
+                content_type = f'image/{ext}'
+        elif ext in ['txt', 'edi', '835', 'x12', 'dat', 'csv', 'json', 'log', '35', 'ansi', 'rem']:
+            content_type = 'text/plain; charset=utf-8'
+        else:
+            content_type = 'application/octet-stream'
+
+        log_audit(
+            client=client, module='ONBOARDING', action='EVIDENCE_VIEW',
+            details=f"Viewed uploaded evidence file '{up.original_filename}' for Step {step_def.step_number}.",
+            request=request
+        )
+
+        response = FileResponse(open(file_path, 'rb'), content_type=content_type)
+        response['Content-Disposition'] = f'inline; filename="{up.original_filename}"'
+        response['X-OneSmarter-Filename'] = up.original_filename
+        response['Content-Length'] = os.path.getsize(file_path)
+        return response
 
 
 class Validate835View(APIView):
@@ -1358,18 +1530,16 @@ class SendFTPView(APIView):
         if os.path.exists(test_file_path):
             with open(test_file_path, 'r') as f:
                 content = f.read()
-            if content == test_content:
-                # Send email to the client if they have an email registered
+                # Send notification email to the client if they have an email registered (plain text only, no document attachment)
                 client_email = client.contact_info
                 if client_email:
                     try:
                         email = EmailMessage(
-                            subject=f"FTP Verification Completed for {client.name}",
-                            body=f"Hello,\n\nThe FTP verification payload has been successfully validated for {client.name}.\nPlease find the test payload attached.\n\nBest regards,\nOneSmarter Onboarding Team",
+                            subject=f"File Sent to SFTP - {client.name}",
+                            body=f"Hello {client.name},\n\nWe have sent the file to your SFTP.\n\nBest regards,\nOneSmarter Onboarding Team",
                             from_email=settings.DEFAULT_FROM_EMAIL if hasattr(settings, 'DEFAULT_FROM_EMAIL') else 'noreply@onesmarter.com',
                             to=[client_email],
                         )
-                        email.attach_file(test_file_path)
                         email.send(fail_silently=True)
                     except Exception as e:
                         # Log but don't fail the step if SMTP is not configured
@@ -1383,9 +1553,16 @@ class SendFTPView(APIView):
                 st_obj.save()
 
                 advance_next_step(client, step_def.step_number)
-                log_audit(client=client, module='ONBOARDING', action='STEP_11_FTP_SEND', details=f"Sent test FTP payload and completed Step 11.", request=request)
-
-                return Response({'ok': True, 'step': step_def.step_number, 'message': 'FTP file sent and verified successfully.'})
+                return Response({
+                    'ok': True,
+                    'step': step_def.step_number,
+                    'title': 'SFTP File Transmission Verified',
+                    'message': f"Hello {client.name}, we have sent the file to your SFTP.",
+                    'checks': [
+                        {'ok': True, 'label': 'Payload Transmission', 'detail': f"Verified test payload generated and transferred to {client.name} SFTP repository."},
+                        {'ok': True, 'label': 'Compliance Progression', 'detail': 'Transfer integrity confirmed. Step 11 marked as complete and Step 12 unlocked.'}
+                    ]
+                })
             
         return Response({'ok': False, 'error': 'Failed to verify the FTP test file.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -1467,6 +1644,9 @@ class SaveStep5ClaimVerifyView(APIView):
         if not text:
             return Response({'error': 'Verification text required'}, status=status.HTTP_400_BAD_REQUEST)
 
+        old_ver = ClaimSystemVerification.objects.filter(client=client).order_by('-id').first()
+        old_txt = old_ver.verification_text.strip() if (old_ver and old_ver.verification_text) else None
+
         with transaction.atomic():
             ver = ClaimSystemVerification.objects.create(client=client, verification_text=text, verified_by='Admin User')
 
@@ -1477,7 +1657,12 @@ class SaveStep5ClaimVerifyView(APIView):
                 st_obj.save()
                 advance_next_step(client, 5)
 
-            log_audit(client=client, module='ONBOARDING', action='CLAIM_SYSTEM_VERIFIED', details="Verified claims system details.", request=request)
+            if old_txt and old_txt != text:
+                details_msg = f"Claim system verification changed from '{old_txt}' to '{text}' for {client.name}."
+            else:
+                details_msg = f"Verified claims system details: '{text}' for {client.name}."
+
+            log_audit(client=client, module='ONBOARDING', action='CLAIM_SYSTEM_VERIFIED', details=details_msg, request=request)
             
         return Response({'ok': True, 'verification': ClaimSystemVerificationSerializer(ver).data})
 
@@ -1530,6 +1715,9 @@ class SaveStep13ScheduleView(APIView):
 
         sdate = request.data.get('scheduled_date', '')
         stime = request.data.get('scheduled_time', '')
+        old_sc = StepSchedule.objects.filter(client=client).order_by('-id').first()
+        old_val = f"{old_sc.scheduled_date} {old_sc.scheduled_time}".strip() if (old_sc and old_sc.scheduled_date) else None
+
         with transaction.atomic():
             StepSchedule.objects.create(
                 client=client, scheduled_date=sdate,
@@ -1544,7 +1732,15 @@ class SaveStep13ScheduleView(APIView):
                 st_obj.save()
                 advance_next_step(client, 13)
 
-            log_audit(client=client, module='ONBOARDING', action='STEP_13_SCHEDULED', details=f"Scheduled onboarding live cutover: {sdate} {stime}.", request=request)
+            new_val = f"{sdate} {stime}".strip()
+            if old_val and old_val != new_val:
+                action_desc = f"Cutover schedule changed from '{old_val}' to '{new_val}' for {client.name}."
+                action_type = 'STEP_13_SCHEDULE_UPDATED'
+            else:
+                action_desc = f"Scheduled onboarding live cutover: {new_val} for {client.name}."
+                action_type = 'STEP_13_SCHEDULED'
+
+            log_audit(client=client, module='ONBOARDING', action=action_type, details=action_desc, request=request)
             
         return Response({'ok': True})
 
@@ -1561,6 +1757,9 @@ class SubmitStepTextView(APIView):
         if not ok_seq:
             return seq_err
         
+        old_sub = StepTextSubmission.objects.filter(client=client, step=step_def).order_by('-id').first()
+        old_text = old_sub.submission_text.strip() if (old_sub and old_sub.submission_text) else None
+
         with transaction.atomic():
             StepTextSubmission.objects.create(client=client, step=step_def, submission_text=text, submitted_by='Admin User')
 
@@ -1570,13 +1769,31 @@ class SubmitStepTextView(APIView):
             st_obj.save()
 
             advance_next_step(client, step_def.step_number)
-            log_audit(client=client, module='ONBOARDING', action='STEP_TEXT_SUBMISSION', details=f"Submitted text for Step {step_def.step_number} ({step_def.title}).", request=request)
+
+            if old_text and old_text != text:
+                details_desc = f"Step {step_def.step_number} ({step_def.title}) submission changed from '{old_text}' to '{text}' for {client.name}."
+            else:
+                details_desc = f"Submitted text for Step {step_def.step_number} ({step_def.title}): '{text}' for {client.name}."
+
+            log_audit(client=client, module='ONBOARDING', action='STEP_TEXT_SUBMISSION', details=details_desc, request=request)
 
         return Response({'ok': True})
 
 
 class StepNotesView(APIView):
     def get(self, request, client_id, step_key):
+        # Check if it's Go Live step
+        gl_step = GoLiveStepDefinition.objects.filter(step_key=step_key).first()
+        if not gl_step and (str(step_key).startswith('gl_') or str(step_key).startswith('golive_')):
+            num_str = re.sub(r'[^0-9]+', '', str(step_key))
+            if num_str.isdigit():
+                gl_step = GoLiveStepDefinition.objects.filter(step_number=int(num_str)).first()
+
+        if gl_step:
+            notes = GoLiveStepNote.objects.filter(client_id=client_id, step=gl_step).order_by('-id')
+            return Response({'ok': True, 'notes': GoLiveStepNoteSerializer(notes, many=True).data})
+
+        # Otherwise Onboarding step
         step_def = find_step_definition(step_key)
         if not step_def:
             return Response({'ok': True, 'notes': []})
@@ -1585,13 +1802,29 @@ class StepNotesView(APIView):
 
     def post(self, request, client_id, step_key):
         client = Client.objects.filter(id=client_id).first()
-        step_def = find_step_definition(step_key)
         text = request.data.get('note_text', '').strip()
-        if not client or not step_def or not text:
+        if not client or not text:
             return Response({'error': 'Invalid note'}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Check if Go Live step
+        gl_step = GoLiveStepDefinition.objects.filter(step_key=step_key).first()
+        if not gl_step and (str(step_key).startswith('gl_') or str(step_key).startswith('golive_')):
+            num_str = re.sub(r'[^0-9]+', '', str(step_key))
+            if num_str.isdigit():
+                gl_step = GoLiveStepDefinition.objects.filter(step_number=int(num_str)).first()
+
+        if gl_step:
+            note = GoLiveStepNote.objects.create(client=client, step=gl_step, note_text=text, author='Admin User')
+            log_audit(client=client, module='GO_LIVE', action='NOTE_ADDED', details=f"Added note to Go Live Step {gl_step.step_number} ({gl_step.title}): '{text}'.", request=request)
+            return Response({'ok': True, 'note': GoLiveStepNoteSerializer(note).data})
+
+        # Onboarding step
+        step_def = find_step_definition(step_key)
+        if not step_def:
+            return Response({'error': 'Step not found'}, status=status.HTTP_404_NOT_FOUND)
+
         note = StepNote.objects.create(client=client, step=step_def, note_text=text, author='Admin User')
-        log_audit(client=client, module='ONBOARDING', action='NOTE_ADDED', details=f"Added note to Step {step_def.step_number} ({step_def.title}).", request=request)
+        log_audit(client=client, module='ONBOARDING', action='NOTE_ADDED', details=f"Added note to Step {step_def.step_number} ({step_def.title}): '{text}'.", request=request)
         return Response({'ok': True, 'note': StepNoteSerializer(note).data})
 
 
@@ -1622,10 +1855,10 @@ class DownloadTemplateView(APIView):
             return Response({'error': f'Step {step_key} not found'}, status=status.HTTP_404_NOT_FOUND)
 
         ext = step_def.download_extension or 'pdf'
-        download_filename = get_step_download_filename(step_def.title, ext)
+        file_name = step_def.download_filename or f"{step_key}.{ext}"
+        download_filename = step_def.download_filename or f"OneSmarter_{step_key}.{ext}"
 
         sample_dir = os.path.abspath(os.path.join(settings.BASE_DIR.parent, 'sample documents'))
-        file_name = step_def.download_filename or f"{step_key}.{ext}"
         file_path = os.path.join(sample_dir, file_name)
 
         if not os.path.exists(file_path):

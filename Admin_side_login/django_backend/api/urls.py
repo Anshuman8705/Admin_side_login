@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
-    ClientViewSet, StepUploadView, Validate835View, RedoStepView, CompleteStepDirectView,
+    ClientViewSet, StepUploadView, StepUploadFileView, Validate835View, RedoStepView, CompleteStepDirectView,
     SendFTPView,
     SaveStep4ContactView, SaveStep5ClaimVerifyView, SaveStep6TransferConfigView,
     SaveStep13ScheduleView, SubmitStepTextView, StepNotesView, EmployeeRolesView,
@@ -68,6 +68,7 @@ urlpatterns = [
     
     # Step-specific actions
     path('clients/<str:client_id>/steps/<str:step_key>/upload', StepUploadView.as_view(), name='step-upload'),
+    path('clients/<str:client_id>/steps/<str:step_key>/file', StepUploadFileView.as_view(), name='step-upload-file'),
     path('clients/<str:client_id>/steps/step_7_835_val/validate-uploaded', Validate835View.as_view(), name='validate-835'),
     path('clients/<str:client_id>/steps/<str:step_key>/redo', RedoStepView.as_view(), name='redo-step'),
     path('clients/<str:client_id>/onboarding/steps/<str:step_key>/complete', CompleteStepDirectView.as_view(), name='complete-step'),

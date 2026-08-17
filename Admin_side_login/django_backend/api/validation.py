@@ -296,17 +296,20 @@ def validate_step_upload(step_number: int, buf: bytes, orig_filename: str) -> di
         ok, checks = validate_x12_835_content(text)
         return {"ok": ok, "checks": checks}
 
-    # Step 12: Email attachment validation (PDF, EML, MSG, TXT, DOC, DOCX)
+    # Step 12: Email attachment validation (Images: PNG, JPG, JPEG, WEBP, GIF, SVG, BMP, TIFF, ICO, AVIF, HEIC; Documents: PDF, EML, MSG, TXT, DOC, DOCX)
     if step_number == 12:
         ext = (name.split(".")[-1].lower() if "." in name else "")
-        allowed_email_exts = {"pdf", "eml", "msg", "txt", "doc", "docx"}
+        allowed_email_exts = {
+            "pdf", "eml", "msg", "txt", "doc", "docx",
+            "png", "jpg", "jpeg", "webp", "gif", "svg", "bmp", "tiff", "tif", "ico", "avif", "heic"
+        }
         if ext and ext not in allowed_email_exts:
             return {
                 "ok": False,
-                "checks": [{"ok": False, "label": "Email Attachment Format", "detail": f"Unsupported file type (.{ext}). Please upload a valid email export or signoff attachment (.pdf, .eml, .msg, .txt, .doc, .docx)."}]
+                "checks": [{"ok": False, "label": "Email / Signoff Attachment Format", "detail": f"Unsupported file type (.{ext}). Please upload a valid image or document (.png, .jpg, .jpeg, .webp, .gif, .svg, .bmp, .pdf, .eml, .msg, .txt, .doc, .docx)."}]
             }
-        if len(buf) < 32:
-            return {"ok": False, "checks": [{"ok": False, "label": "File Size", "detail": "Uploaded email attachment is empty or lacks substantive signoff content."}]}
+        if len(buf) < 16:
+            return {"ok": False, "checks": [{"ok": False, "label": "File Size", "detail": "Uploaded attachment is empty or corrupted."}]}
 
         # If PDF, verify PDF header
         if ext == "pdf" and not (buf.startswith(b"%PDF") or b"%PDF-" in buf[:1024]):
@@ -315,8 +318,8 @@ def validate_step_upload(step_number: int, buf: bytes, orig_filename: str) -> di
         return {
             "ok": True,
             "checks": [
-                {"ok": True, "label": "Email Attachment Format", "detail": f"Valid signoff document format (.{ext})."},
-                {"ok": True, "label": "Attachment Integrity", "detail": f"Captured client signoff attachment ({len(buf)} bytes)."}
+                {"ok": True, "label": "Attachment Format", "detail": f"Valid document/image format (.{ext})."},
+                {"ok": True, "label": "Attachment Storage", "detail": f"Captured client confirmation ({len(buf)} bytes stored in database)."}
             ]
         }
 

@@ -30,7 +30,7 @@ class Command(BaseCommand):
             (1, 'step_1_nda', 'Mutual NDA signed', 'Upload signed NDA template to establish confidentiality agreement.', 1, 'upload_template', 'OneSmarter_MutualNDA_Template.pdf', 'pdf'),
             (2, 'step_2_baa', 'Business associate agreement executed', 'Execute HIPAA compliant Business Associate Agreement.', 1, 'upload_template', 'OneSmarter_BAA_Template.pdf', 'pdf'),
             (3, 'step_3_security', 'Security review returned to client', 'Upload security audit review document.', 1, 'upload_template', 'OneSmarter_SecurityReview_Template.pdf', 'pdf'),
-            (4, 'step_4_contacts', 'Named & after-hours contacts recorded', 'Designate after-hours contact personnel.', 1, 'contact_manager', None, None),
+            (4, 'step_4_contacts', 'Name change and Contact Records', 'Designate client contact personnel and records.', 1, 'contact_manager', None, None),
             (5, 'step_5_claim_sys', 'Claims system identified and verified', 'Identify client claims vendor software system.', 2, 'claim_verify', None, None),
             (6, 'step_6_transfer_method', 'Delivery method agreed', 'Configure secure transfer mechanism (SFTP, API drop).', 2, 'transfer_config', None, None),
             (7, 'step_7_835_val', 'Sample 835 received and validated', 'Validate structural integrity of sample X12 835 file.', 2, 'x12_835_validate', 'OneSmarter_Sample835_Template.edi', 'edi'),
@@ -38,8 +38,8 @@ class Command(BaseCommand):
             (9, 'step_9_sftp', 'Test environment created & SFTP configured', 'Open SFTP App to provision test folders and SSH keys.', 3, 'sftp_redirect', None, None),
             (10, 'step_10_test_review', 'Test conversions reviewed with client', 'Verify side-by-side conversion of sample 835 files.', 3, 'side_by_side_done', None, None),
             (11, 'step_11_send_ftp', 'Send test file to client FTP', 'Transmit verified test payload to client FTP server.', 3, 'send_ftp_action', None, None),
-            (12, 'step_12_email_attach', 'Upload email conversation attachment', 'Attach email confirmation / sign-off thread from client.', 3, 'email_upload', None, None),
-            (13, 'step_13_schedule', 'Schedule live onboarding go-live date', 'Set scheduled date and time for live production cutover.', 4, 'schedule_action', None, None),
+            (12, 'step_12_email_attach', 'Upload email conversation attachment', 'Attach email confirmation.', 3, 'email_upload', None, None),
+            (13, 'step_13_schedule', 'Set schedule', 'Set scheduled date and time for live production cutover.', 4, 'schedule_action', None, None),
             (14, 'step_14_go_live', 'Go live checklist & controls verified', 'Confirm production cutover safeguards and monitoring.', 4, 'text_submission', None, None),
             (15, 'step_15_delivery', 'First production file delivered & monitored', 'Monitor first live 835 delivery and conclude onboarding.', 4, 'text_submission_final', None, None),
         ]
@@ -65,8 +65,8 @@ class Command(BaseCommand):
         # Seed GoLive Step Definitions (Exact 6 steps as required)
         self.stdout.write('Seeding Go Live step definitions (6-step redesign)...')
         golive_steps_data = [
-            (1, 'golive_step_1_auth', 'Pre-Flight Readiness & Cutover Authorization', 'Upload signed authorization document establishing production readiness.', 'golive_doc_step1', 'OneSmarter_MutualNDA_Template.pdf', 'pdf'),
-            (2, 'golive_step_2_compliance', 'Baseline & Final Compliance Confirmation', 'Execute and upload final production baseline compliance confirmation.', 'golive_doc_step2', 'OneSmarter_BAA_Template.pdf', 'pdf'),
+            (1, 'golive_step_1_auth', 'Pre-Flight Readiness & Cutover Authorization', 'Upload signed authorization document establishing production readiness.', 'golive_doc_step1', 'OneSmarter_CutoverAuthorization_Template.pdf', 'pdf'),
+            (2, 'golive_step_2_compliance', 'Baseline & Final Compliance Confirmation', 'Execute and upload final production baseline compliance confirmation.', 'golive_doc_step2', 'OneSmarter_ProductionBaseline_Template.pdf', 'pdf'),
             (3, 'golive_step_3_sftp', 'Production SFTP setup', 'Configure production SFTP checklist (watched folder, SSH keys, zero change) or execute bounded routing.', 'golive_sftp', None, None),
             (4, 'golive_step_4_schedule', 'Production Schedule', 'Establish the required production go-live cutover date and optional execution time.', 'golive_schedule', None, None),
             (5, 'golive_step_5_comment', 'Any Special Comment', 'Record optional special instructions, escalation overrides, or rollout comments.', 'golive_comment', None, None),
@@ -96,24 +96,24 @@ class Command(BaseCommand):
 
         self.stdout.write('Seeding default clients...')
         clients_data = [
-            ("abc", "ABC Health Plan", "ABCHP", "In-house", "14 Mar 2025", "Today 09:41", "Rushi", "Healthy", "production", "support@abc.example", 100),
-            ("cardinal", "Cardinal Benefit Administrators", "CARDINAL", "Legacy AS/400", "02 May 2025", "Today 08:12", "Prajval", "Healthy", "production", "ops@cardinal.example", 100),
-            ("miami", "Miami Valley TPA", "MIAMI", "Vendor hosted", "19 Jun 2025", "Yesterday", "Rushi", "Quiet 26h", "production", "claims@miamivalley.example", 100),
-            ("great-lakes", "Great Lakes Benefit Trust", "GLBT", "In-house", "30 Jul 2025", "Today 07:55", "Prajval", "Healthy", "production", "admin@greatlakes.example", 100),
-            ("buckeye", "Buckeye Plan Services", "BUCKEYE", "Vendor hosted", None, "Test file 4", "Rushi", "Our move", "onboarding", "contact@buckeye.example", 27),
-            ("northwood", "Northwood Administrators", "NORTHWOOD", "Vendor hosted", None, None, "Vikram J.", "Waiting on client", "onboarding", "admin@northwood.example", 0),
+            ("abchp", "ABC Health Plan", "ABCHP", "In-house", "14 Mar 2025", "Today 08:30", "Rushi", "production", "contact@abchp.example", 100),
+            ("cardinal", "Cardinal Benefit Administrators", "CARDINAL", "Legacy AS/400", "02 May 2025", "Today 08:12", "Prajval", "production", "ops@cardinal.example", 100),
+            ("miami", "Miami Valley TPA", "MIAMI", "Vendor hosted", "19 Jun 2025", "Yesterday", "Rushi", "production", "claims@miamivalley.example", 100),
+            ("great-lakes", "Great Lakes Benefit Trust", "GLBT", "In-house", "30 Jul 2025", "Today 07:55", "Prajval", "production", "admin@greatlakes.example", 100),
+            ("buckeye", "Buckeye Plan Services", "BUCKEYE", "Vendor hosted", None, "Test file 4", "Rushi", "onboarding_pending", "contact@buckeye.example", 27),
+            ("northwood", "Northwood Administrators", "NORTHWOOD", "Vendor hosted", None, None, "Vikram J.", "onboarding_pending", "admin@northwood.example", 0),
         ]
 
         all_steps = list(OnboardingStepDefinition.objects.all().order_by('step_number'))
         all_gl_steps = list(GoLiveStepDefinition.objects.all().order_by('step_number'))
 
-        for cid, name, code, claims_sys, live_since, last_file, owner, state, stage, contact, pct in clients_data:
+        for cid, name, code, claims_sys, live_since, last_file, owner, stage, contact, pct in clients_data:
             c, _ = Client.objects.get_or_create(
                 id=cid,
                 defaults={
                     'name': name, 'code': code, 'claims_system': claims_sys,
                     'live_since': live_since, 'last_file': last_file,
-                    'owner': owner, 'state': state, 'stage': stage,
+                    'owner': owner, 'stage': stage,
                     'contact_info': contact, 'progress_pct': pct
                 }
             )
@@ -123,7 +123,6 @@ class Command(BaseCommand):
             c.live_since = live_since
             c.last_file = last_file
             c.owner = owner
-            c.state = state
             c.stage = stage
             c.contact_info = contact
             c.progress_pct = pct

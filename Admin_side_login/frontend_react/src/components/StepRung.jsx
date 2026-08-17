@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { uploadStepFile, validateStaged835, postStepData, downloadTemplateFile } from '../services/api';
+import React, { useState, useRef } from 'react';
+import { uploadStepFile, validateStaged835, postStepData, downloadTemplateFile, fetchStepUploadFile } from '../services/api';
 import FeedbackModal from './modals/FeedbackModal';
+import FileViewerModal from './modals/FileViewerModal';
 
 function formatDateTime(dateVal) {
   if (!dateVal) return 'N/A';
@@ -14,30 +15,119 @@ function formatDateTime(dateVal) {
   return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
 }
 
+function toISODate(val) {
+  if (!val) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(val)) return val;
+  if (/^\d{2}-\d{2}-\d{4}$/.test(val)) {
+    const [m, d, y] = val.split('-');
+    return `${y}-${m}-${d}`;
+  }
+  const dt = new Date(val);
+  if (isNaN(dt.getTime())) return '';
+  const yyyy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function formatToMMDDYYYY(val) {
+  if (!val) return '';
+  if (/^\d{2}-\d{2}-\d{4}$/.test(val)) return val;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(val)) {
+    const [y, m, d] = val.split('-');
+    return `${m}-${d}-${y}`;
+  }
+  const dt = new Date(val);
+  if (isNaN(dt.getTime())) return val;
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getDate()).padStart(2, '0');
+  const yyyy = dt.getFullYear();
+  return `${mm}-${dd}-${yyyy}`;
+}
+
 export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes, onOpenRedo, onOpenAddRole }) {
   const [feedback, setFeedback] = useState({ isOpen: false, kind: 'ok', title: '', content: '', checks: [] });
+  const [viewerFile, setViewerFile] = useState(null);
+  const [isViewerOpen, setIsViewerOpen] = useState(false);
+  const [viewerLoading, setViewerLoading] = useState(false);
+  const [validating835, setValidating835] = useState(false);
 
   const [s4Name, setS4Name] = useState('');
   const [s4Role, setS4Role] = useState(roles[0]?.role_name || 'Named Contact');
   const [s4Email, setS4Email] = useState('');
   const [s4CountryCode, setS4CountryCode] = useState('+1');
   const [s4Phone, setS4Phone] = useState('');
-  const [s4Alt, setS4Alt] = useState('');
-  const [s4Ah, setS4Ah] = useState('');
+  const [showAllContacts, setShowAllContacts] = useState(false);
+  const [s4Touched, setS4Touched] = useState({ name: false, email: false, phone: false });
+  const [s4SubmitError, setS4SubmitError] = useState('');
+
+  // Step 4 Real-time inline field validations
+  const s4Existing = step.extra?.contacts || [];
+  
+  const s4NameError = (() => {
+    if (!s4Touched.name && !s4Name) return '';
+    const trimmed = s4Name.trim();
+    if (!trimmed) return s4Touched.name ? 'Contact name is required.' : '';
+    if (s4Existing.some(c => (c.employee_name || c.name || '').toLowerCase() === trimmed.toLowerCase())) {
+      return 'Contact name already exists.';
+    }
+    return '';
+  })();
+
+  const s4EmailError = (() => {
+    const trimmed = s4Email.trim();
+    if (!trimmed) return '';
+    const emailPattern = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/;
+    if (!emailPattern.test(trimmed)) {
+      return 'Invalid email address format.';
+    }
+    if (s4Existing.some(c => (c.email || '').toLowerCase() === trimmed.toLowerCase())) {
+      return 'Email address already exists.';
+    }
+    return '';
+  })();
+
+  const s4PhoneError = (() => {
+    const trimmed = s4Phone.trim();
+    if (!trimmed) return '';
+    const fullPhone = `${s4CountryCode}${trimmed}`;
+    const digits = fullPhone.replace(/\D/g, '');
+    if (digits.length < 7 || digits.length > 15) {
+      return 'Phone must have 7 to 15 digits.';
+    }
+    if (s4Existing.some(c => (c.phone || '').trim() === fullPhone)) {
+      return 'Phone number already exists.';
+    }
+    return '';
+  })();
 
   const [s5Text, setS5Text] = useState(step.extra?.verification?.verification_text || '');
   const [s6Method, setS6Method] = useState(step.extra?.transferConfig?.method || 'SFTP');
-  const [s6Status, setS6Status] = useState(step.extra?.transferConfig?.setup_status || 'Configured');
+  const [s6SftpMode, setS6SftpMode] = useState(step.extra?.transferConfig?.notes?.includes('Pull') ? 'Pull' : 'Push');
+  const [s6ApiUrl, setS6ApiUrl] = useState(step.extra?.transferConfig?.notes?.startsWith('https') ? step.extra.transferConfig.notes : '');
+  const [s6ApiTouched, setS6ApiTouched] = useState(false);
   const [s6Watched, setS6Watched] = useState(Boolean(step.extra?.transferConfig?.watched_folder_sftp));
   const [s6Keys, setS6Keys] = useState(Boolean(step.extra?.transferConfig?.keys_exchanged));
   const [s6NoChange, setS6NoChange] = useState(Boolean(step.extra?.transferConfig?.no_change_to_client_system));
-  const [s6Notes, setS6Notes] = useState(step.extra?.transferConfig?.notes || '');
+
+  // Step 6 HTTPS API validation
+  const s6ApiError = (() => {
+    if (s6Method !== 'HTTPS API') return '';
+    if (!s6ApiTouched && !s6ApiUrl) return '';
+    const trimmed = s6ApiUrl.trim();
+    if (!trimmed) return s6ApiTouched ? 'HTTPS endpoint URL is required.' : '';
+    const urlPattern = /^https:\/\/[^\s/$.?#].[^\s]*$/i;
+    if (!urlPattern.test(trimmed)) {
+      return 'Please enter a valid HTTPS URL (e.g. https://api.client.com/v1/claims).';
+    }
+    return '';
+  })();
 
   const [s10Notes, setS10Notes] = useState(step.extra?.submission?.submission_text || '');
 
-  const [s13Date, setS13Date] = useState(step.extra?.schedule?.scheduled_date || '');
+  const datePickerRef = useRef(null);
+  const [s13Date, setS13Date] = useState(() => formatToMMDDYYYY(step.extra?.schedule?.scheduled_date) || '');
   const [s13Time, setS13Time] = useState(step.extra?.schedule?.scheduled_time || '10:00');
-  const [s13Tz, setS13Tz] = useState(step.extra?.schedule?.timezone || 'ET');
   const [s13Notes, setS13Notes] = useState(step.extra?.schedule?.notes || '');
 
   const [stText, setStText] = useState(step.extra?.submission?.submission_text || '');
@@ -103,6 +193,7 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
   };
 
   const handleValidate835 = async () => {
+    setValidating835(true);
     try {
       const res = await validateStaged835(clientId);
       setFeedback({
@@ -122,96 +213,111 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
         checks: err.checks || []
       });
       await onRefresh();
+    } finally {
+      setValidating835(false);
     }
   };
 
   const handleStep4Save = async () => {
+    setS4Touched({ name: true, email: true, phone: true });
+    setS4SubmitError('');
+
     const trimmedName = s4Name.trim();
-    if (!trimmedName) { alert('Please enter employee name'); return; }
+    if (!trimmedName || s4NameError || s4EmailError || s4PhoneError) {
+      return;
+    }
 
-    // Duplicate check
-    const existing = step.extra?.contacts || [];
-    if (existing.some(c => (c.employee_name || c.name || '').toLowerCase() === trimmedName.toLowerCase())) {
-      alert(`Duplicate entry: An employee contact named "${trimmedName}" already exists for this client.`);
-      return;
-    }
-    if (s4Email.trim() && existing.some(c => (c.email || '').toLowerCase() === s4Email.trim().toLowerCase())) {
-      alert(`Duplicate entry: An employee contact with email "${s4Email.trim()}" already exists for this client.`);
-      return;
-    }
     const fullPhone = s4Phone.trim() ? `${s4CountryCode}${s4Phone.trim()}` : '';
-
-    if (fullPhone && existing.some(c => (c.phone || '').trim() === fullPhone)) {
-      alert(`Duplicate entry: An employee contact with phone "${fullPhone}" already exists for this client.`);
-      return;
-    }
-
-    // Email validation
-    if (s4Email.trim()) {
-      const emailPattern = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/;
-      if (!emailPattern.test(s4Email.trim())) {
-        alert('Invalid email address format.');
-        return;
-      }
-    }
-
-    // Phone validation
-    if (fullPhone) {
-      const digits = fullPhone.replace(/\D/g, '');
-      if (digits.length < 7 || digits.length > 15) {
-        alert(`Invalid phone length (${digits.length} digits). Standard international phone numbers must be between 7 and 15 digits.`);
-        return;
-      }
-    }
 
     try {
       await postStepData(`/clients/${encodeURIComponent(clientId)}/steps/step_4_contacts/save`, {
-        role_name: s4Role, employee_name: trimmedName, email: s4Email.trim(), phone: fullPhone,
-        alternate_contact: s4Alt.trim(), after_hours_notes: s4Ah.trim()
+        role_name: s4Role,
+        employee_name: trimmedName,
+        email: s4Email.trim(),
+        phone: fullPhone
       });
       setS4Name('');
       setS4Email('');
       setS4Phone('');
-      setS4Alt('');
-      setS4Ah('');
+      setS4Touched({ name: false, email: false, phone: false });
+      setS4SubmitError('');
       await onRefresh();
-    } catch (err) { alert('Error: ' + err.message); }
+    } catch (err) { 
+      setS4SubmitError(err.message || 'Failed to save contact.');
+    }
   };
 
   const handleStep5Save = async () => {
-    if (!s5Text.trim()) { alert('Please enter verification text'); return; }
+    if (!s5Text.trim()) { 
+      setFeedback({ isOpen: true, kind: 'bad', title: 'Input Required', content: 'Please enter verification text.', checks: [] }); 
+      return; 
+    }
     try {
       await postStepData(`/clients/${encodeURIComponent(clientId)}/steps/step_5_claim_sys/save`, { verification_text: s5Text });
       await onRefresh();
-    } catch (err) { alert('Error: ' + err.message); }
+    } catch (err) { 
+      setFeedback({ isOpen: true, kind: 'bad', title: 'Submission Error', content: err.message, checks: [] }); 
+    }
   };
 
   const handleStep6Save = async () => {
+    if (s6Method === 'HTTPS API') {
+      setS6ApiTouched(true);
+      const trimmed = s6ApiUrl.trim();
+      const urlPattern = /^https:\/\/[^\s/$.?#].[^\s]*$/i;
+      if (!trimmed || !urlPattern.test(trimmed)) {
+        return;
+      }
+    }
+
     try {
+      const notesPayload = s6Method === 'SFTP' 
+        ? `SFTP Direction: ${s6SftpMode}` 
+        : (s6Method === 'HTTPS API' ? s6ApiUrl.trim() : 'Manual Upload Direct');
+
       await postStepData(`/clients/${encodeURIComponent(clientId)}/steps/step_6_transfer_method/save`, {
-        method: s6Method, setup_status: s6Status, watched_folder_sftp: s6Watched,
-        keys_exchanged: s6Keys, no_change_to_client_system: s6NoChange, notes: s6Notes
+        method: s6Method,
+        setup_status: 'Configured',
+        watched_folder_sftp: s6Watched,
+        keys_exchanged: s6Keys,
+        no_change_to_client_system: s6NoChange,
+        notes: notesPayload
       });
       await onRefresh();
-    } catch (err) { alert('Error: ' + err.message); }
+    } catch (err) { 
+      setFeedback({ isOpen: true, kind: 'bad', title: 'Save Failed', content: err.message, checks: [] }); 
+    }
   };
 
   const handleStep13Save = async () => {
-    if (!s13Date || !s13Time) { alert('Please select date and time'); return; }
+    if (!s13Date.trim() || !s13Time.trim()) { 
+      setFeedback({ isOpen: true, kind: 'bad', title: 'Input Required', content: 'Please select scheduled date and time.', checks: [] }); 
+      return; 
+    }
     try {
       await postStepData(`/clients/${encodeURIComponent(clientId)}/steps/step_13_schedule/save`, {
-        scheduled_date: s13Date, scheduled_time: s13Time, timezone: s13Tz, notes: s13Notes
+        scheduled_date: s13Date.trim(),
+        scheduled_time: s13Time.trim(),
+        timezone: 'Eastern (ET)',
+        notes: s13Notes.trim()
       });
       await onRefresh();
-    } catch (err) { alert('Error: ' + err.message); }
+    } catch (err) { 
+      setFeedback({ isOpen: true, kind: 'bad', title: 'Schedule Error', content: err.message, checks: [] }); 
+    }
   };
 
   const handleTextSubmission = async () => {
-    if (!stText.trim()) { alert('Please enter required details.'); return; }
+    if (!stText.trim()) { 
+      setFeedback({ isOpen: true, kind: 'bad', title: 'Input Required', content: 'Please enter required details.', checks: [] }); 
+      return; 
+    }
     try {
       await postStepData(`/clients/${encodeURIComponent(clientId)}/steps/${encodeURIComponent(step.key)}/submit-text`, { submission_text: stText });
       await onRefresh();
-    } catch (err) { alert('Error: ' + err.message); }
+    } catch (err) { 
+      setFeedback({ isOpen: true, kind: 'bad', title: 'Submission Error', content: err.message, checks: [] }); 
+    }
   };
 
   const launchRedirect = (url, pendingKey) => {
@@ -221,6 +327,27 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
 
   const latestUp = step.latestUpload;
   const isFailed = latestUp && latestUp.validation_status === 'FAILED';
+  const hasValidUpload = Boolean(latestUp && latestUp.validation_status !== 'FAILED');
+
+  const handleViewUploadedFile = async () => {
+    if (!hasValidUpload) return;
+    setViewerLoading(true);
+    try {
+      const data = await fetchStepUploadFile(clientId, step.key);
+      setViewerFile(data);
+      setIsViewerOpen(true);
+    } catch (err) {
+      setFeedback({
+        isOpen: true,
+        kind: 'bad',
+        title: 'Preview Error',
+        content: err.message || 'Failed to load uploaded file.',
+        checks: []
+      });
+    } finally {
+      setViewerLoading(false);
+    }
+  };
 
   const stateClass = step.done ? 'done' : (step.inProgress ? 'now' : 'locked');
   const markContent = step.done ? '✓' : (step.inProgress ? step.id : '🔒');
@@ -233,7 +360,7 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
   );
 
   return (
-    <div className={`rung ${stateClass}`}>
+    <div className={`rung ${stateClass}`} id={`step-${step.id}`} data-step-id={step.id}>
       <div className="mark">{markContent}</div>
 
       <div className="txt">
@@ -255,73 +382,160 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
         {(step.inProgress || step.done) && (
           <>
             {step.actionType === 'contact_manager' && (
-              <div className="step-custom-box">
-                <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 8 }}>After-Hours &amp; Named Staff Management:</div>
+              <div className="step-custom-box" style={{ padding: '10px 14px', background: '#F8FAFC', borderRadius: '4px', border: '1px solid var(--line-soft)', marginTop: '10px' }}>
                 {step.extra?.contacts && step.extra.contacts.length > 0 && (
-                  <div style={{ marginBottom: 12, fontSize: 12, background: '#fff', border: '1px solid var(--line-soft)', borderRadius: 2, padding: '8px 10px' }}>
-                    <div style={{ fontWeight: 600, color: 'var(--ink-2)', marginBottom: 6, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Recorded Contacts ({step.extra.contacts.length}):</div>
-                    {step.extra.contacts.map((c, idx) => (
-                      <div key={c.id || idx} style={{ padding: '4px 0', borderBottom: idx < step.extra.contacts.length - 1 ? '1px solid var(--line-soft)' : 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ marginBottom: '10px', fontSize: '12px', background: '#fff', border: '1px solid var(--line-soft)', borderRadius: '3px', padding: '8px 12px' }}>
+                    <div style={{ fontWeight: 600, color: 'var(--ink-2)', marginBottom: '6px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>Recorded Contacts ({step.extra.contacts.length})</span>
+                      {step.extra.contacts.length > 2 && (
+                        <button
+                          type="button"
+                          className="btn tiny"
+                          style={{ padding: '2px 8px', fontSize: '10.5px', color: 'var(--blue)' }}
+                          onClick={() => setShowAllContacts(!showAllContacts)}
+                        >
+                          {showAllContacts ? '▲ Show Less' : `▼ Show More (${step.extra.contacts.length - 2} more)`}
+                        </button>
+                      )}
+                    </div>
+                    {(showAllContacts ? step.extra.contacts : step.extra.contacts.slice(0, 2)).map((c, idx) => (
+                      <div key={c.id || idx} style={{ padding: '4px 0', borderBottom: idx < (showAllContacts ? step.extra.contacts.length : Math.min(2, step.extra.contacts.length)) - 1 ? '1px solid var(--line-soft)' : 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div>
-                          👤 <b>{c.employee_name || c.name}</b> <span className="tag idle" style={{ marginLeft: 6 }}>{c.role_name}</span>
-                          <div style={{ color: 'var(--ink-2)', fontSize: 11, marginTop: 2 }}>
+                          👤 <b>{c.employee_name || c.name}</b> <span className="tag idle" style={{ marginLeft: '6px', fontSize: '10px' }}>{c.role_name}</span>
+                          <span style={{ color: 'var(--ink-2)', fontSize: '11.5px', marginLeft: '10px' }}>
                             {c.email && <span>✉ {c.email} </span>}
                             {c.phone && <span>· ☎ {c.phone} </span>}
-                            {c.after_hours_notes && <span>· 🌙 {c.after_hours_notes}</span>}
-                          </div>
+                          </span>
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 12 }}>
-                  <div>
-                    <label style={{ display: 'block', marginBottom: 2 }}>Employee Post / Role:</label>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      <select style={{ flex: 1, padding: 4, border: '1px solid var(--line)' }} value={s4Role} onChange={(e) => setS4Role(e.target.value)}>
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'flex-start' }}>
+                  <div style={{ width: '140px' }}>
+                    <div style={{ display: 'flex', gap: '3px' }}>
+                      <select 
+                        style={{ width: '100%', padding: '6px 8px', border: '1px solid var(--line)', borderRadius: '3px', fontSize: '12px', background: 'var(--surface)', color: 'var(--ink)' }}
+                        value={s4Role}
+                        onChange={(e) => setS4Role(e.target.value)}
+                      >
                         {roles.map((r) => <option key={r.id} value={r.role_name}>{r.role_name}</option>)}
                       </select>
-                      <button type="button" className="btn tiny" onClick={onOpenAddRole} title="Add Role">+</button>
+                      <button type="button" className="btn tiny icon-btn" onClick={onOpenAddRole} title="Add New Role" style={{ minWidth: '26px', height: '28px' }}>+</button>
                     </div>
                   </div>
-                  <div>
-                    <label style={{ display: 'block', marginBottom: 2 }}>Employee Name *:</label>
-                    <input style={{ width: '100%', padding: 4, border: '1px solid var(--line)' }} placeholder="Jordan Contact" value={s4Name} onChange={(e) => setS4Name(e.target.value)} />
+
+                  <div style={{ width: '145px' }}>
+                    <input 
+                      style={{ 
+                        width: '100%', 
+                        padding: '6px 8px', 
+                        border: s4NameError ? '1px solid var(--brick)' : '1px solid var(--line)', 
+                        background: s4NameError ? 'var(--brick-bg)' : 'var(--surface)',
+                        borderRadius: '3px', 
+                        fontSize: '12px', 
+                        color: 'var(--ink)' 
+                      }}
+                      placeholder="Contact Name *"
+                      value={s4Name}
+                      onBlur={() => setS4Touched(prev => ({ ...prev, name: true }))}
+                      onChange={(e) => {
+                        setS4Name(e.target.value);
+                        setS4Touched(prev => ({ ...prev, name: true }));
+                      }}
+                      required
+                    />
+                    {s4NameError && (
+                      <div style={{ color: 'var(--brick)', fontSize: '10.5px', marginTop: '2px', lineHeight: 1.2 }}>
+                        {s4NameError}
+                      </div>
+                    )}
                   </div>
-                  <div>
-                    <label style={{ display: 'block', marginBottom: 2 }}>Email:</label>
-                    <input style={{ width: '100%', padding: 4, border: '1px solid var(--line)' }} placeholder="jordan@client.example" value={s4Email} onChange={(e) => setS4Email(e.target.value)} />
+
+                  <div style={{ width: '175px' }}>
+                    <input 
+                      style={{ 
+                        width: '100%', 
+                        padding: '6px 8px', 
+                        border: s4EmailError ? '1px solid var(--brick)' : '1px solid var(--line)', 
+                        background: s4EmailError ? 'var(--brick-bg)' : 'var(--surface)',
+                        borderRadius: '3px', 
+                        fontSize: '12px', 
+                        color: 'var(--ink)' 
+                      }}
+                      type="email"
+                      placeholder="Email address"
+                      value={s4Email}
+                      onBlur={() => setS4Touched(prev => ({ ...prev, email: true }))}
+                      onChange={(e) => {
+                        setS4Email(e.target.value);
+                        setS4Touched(prev => ({ ...prev, email: true }));
+                      }}
+                    />
+                    {s4EmailError && (
+                      <div style={{ color: 'var(--brick)', fontSize: '10.5px', marginTop: '2px', lineHeight: 1.2 }}>
+                        {s4EmailError}
+                      </div>
+                    )}
                   </div>
-                  <div>
-                    <label style={{ display: 'block', marginBottom: 2 }}>Phone Number:</label>
-                    <div style={{ display: 'flex', gap: '8px' }}>
+
+                  <div style={{ width: '185px' }}>
+                    <div style={{ display: 'flex', gap: '4px' }}>
                       <select 
-                        style={{ padding: 4, border: '1px solid var(--line)', background: 'var(--surface-1)' }}
+                        style={{ padding: '6px 4px', border: '1px solid var(--line)', borderRadius: '3px', fontSize: '11.5px', background: 'var(--surface)', color: 'var(--ink)' }}
                         value={s4CountryCode}
                         onChange={(e) => setS4CountryCode(e.target.value)}
                       >
-                        <option value="+1">+1 (US/CA)</option>
+                        <option value="+1">+1 (US)</option>
                         <option value="+44">+44 (UK)</option>
                         <option value="+91">+91 (IN)</option>
                         <option value="+61">+61 (AU)</option>
                       </select>
-                      <input style={{ flex: 1, padding: 4, border: '1px solid var(--line)' }} placeholder="555-0199" value={s4Phone} onChange={(e) => setS4Phone(e.target.value)} />
+                      <input 
+                        style={{ 
+                          flex: 1, 
+                          padding: '6px 8px', 
+                          border: s4PhoneError ? '1px solid var(--brick)' : '1px solid var(--line)', 
+                          background: s4PhoneError ? 'var(--brick-bg)' : 'var(--surface)',
+                          borderRadius: '3px', 
+                          fontSize: '12px', 
+                          color: 'var(--ink)', 
+                          minWidth: '60px' 
+                        }}
+                        placeholder="Phone number"
+                        value={s4Phone}
+                        onBlur={() => setS4Touched(prev => ({ ...prev, phone: true }))}
+                        onChange={(e) => {
+                          setS4Phone(e.target.value);
+                          setS4Touched(prev => ({ ...prev, phone: true }));
+                        }}
+                      />
                     </div>
+                    {s4PhoneError && (
+                      <div style={{ color: 'var(--brick)', fontSize: '10.5px', marginTop: '2px', lineHeight: 1.2 }}>
+                        {s4PhoneError}
+                      </div>
+                    )}
                   </div>
-                  <div>
-                    <label style={{ display: 'block', marginBottom: 2 }}>Alternate Contact:</label>
-                    <input style={{ width: '100%', padding: 4, border: '1px solid var(--line)' }} placeholder="Operations Desk" value={s4Alt} onChange={(e) => setS4Alt(e.target.value)} />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', marginBottom: 2 }}>After-Hours Availability:</label>
-                    <input style={{ width: '100%', padding: 4, border: '1px solid var(--line)' }} placeholder="24/7 on-call escalation" value={s4Ah} onChange={(e) => setS4Ah(e.target.value)} />
+
+                  <div style={{ display: 'flex', alignItems: 'flex-start' }}>
+                    <button 
+                      type="button" 
+                      className="btn tiny primary" 
+                      onClick={handleStep4Save}
+                      style={{ padding: '6px 12px', fontWeight: 600, whiteSpace: 'nowrap', height: '29px' }}
+                    >
+                      {step.extra?.contacts && step.extra.contacts.length > 0 ? '+ Add Contact' : 'Save & Complete'}
+                    </button>
                   </div>
                 </div>
-                <div style={{ marginTop: 10, textAlign: 'right' }}>
-                  <button className="btn tiny primary" onClick={handleStep4Save}>
-                    {step.extra?.contacts && step.extra.contacts.length > 0 ? '+ Add Employee Contact' : 'Save & Complete Step 4'}
-                  </button>
-                </div>
+
+                {s4SubmitError && (
+                  <div style={{ color: 'var(--brick)', fontSize: '11px', marginTop: '6px', fontWeight: 500 }}>
+                    ✕ {s4SubmitError}
+                  </div>
+                )}
               </div>
             )}
 
@@ -336,26 +550,105 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
             )}
 
             {step.actionType === 'transfer_config' && (
-              <div className="step-custom-box">
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 12 }}>
-                  <div>
-                    <label style={{ display: 'block', marginBottom: 2 }}>Integration Method:</label>
-                    <select style={{ width: '100%', padding: 4, border: '1px solid var(--line)' }} value={s6Method} onChange={(e) => setS6Method(e.target.value)}>
+              <div className="step-custom-box" style={{ padding: '10px 14px', background: '#F8FAFC', borderRadius: '4px', border: '1px solid var(--line-soft)', marginTop: '10px' }}>
+                <div style={{ fontWeight: 600, fontSize: '11.5px', color: 'var(--ink-2)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  Delivery / Transfer Mechanism:
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'flex-start' }}>
+                  <div style={{ width: '135px' }}>
+                    <select 
+                      style={{ width: '100%', padding: '6px 8px', border: '1px solid var(--line)', borderRadius: '3px', fontSize: '12px', background: 'var(--surface)', color: 'var(--ink)' }} 
+                      value={s6Method} 
+                      onChange={(e) => {
+                        setS6Method(e.target.value);
+                        setS6ApiTouched(false);
+                      }}
+                    >
                       <option value="SFTP">SFTP</option>
                       <option value="HTTPS API">HTTPS API</option>
+                      <option value="Manual Upload">Manual Upload</option>
                     </select>
                   </div>
-                  <div>
-                    <label style={{ display: 'block', marginBottom: 2 }}>Setup Status:</label>
-                    <select style={{ width: '100%', padding: 4, border: '1px solid var(--line)' }} value={s6Status} onChange={(e) => setS6Status(e.target.value)}>
-                      <option value="Configured">Configured</option>
-                      <option value="Pending Keys">Pending Keys</option>
-                      <option value="In Review">In Review</option>
-                    </select>
-                  </div>
-                </div>
-                <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
-                  <button className="btn tiny primary" onClick={handleStep6Save}>Save &amp; Complete Step 6</button>
+
+                  {s6Method === 'SFTP' && (
+                    <div style={{ width: '95px' }}>
+                      <select 
+                        style={{ width: '100%', padding: '6px 8px', border: '1px solid var(--line)', borderRadius: '3px', fontSize: '12px', background: 'var(--surface)', color: 'var(--ink)' }} 
+                        value={s6SftpMode} 
+                        onChange={(e) => setS6SftpMode(e.target.value)}
+                      >
+                        <option value="Push">Push</option>
+                        <option value="Pull">Pull</option>
+                      </select>
+                    </div>
+                  )}
+
+                  {s6Method === 'SFTP' && (
+                    <div>
+                      <button 
+                        type="button" 
+                        className="btn tiny primary" 
+                        onClick={() => launchRedirect(`/sftp?client=${encodeURIComponent(clientId)}`, 'step_6_transfer_method')} 
+                        style={{ padding: '6px 12px', fontWeight: 600, whiteSpace: 'nowrap', height: '29px' }}
+                      >
+                        Configure SFTP ↗
+                      </button>
+                    </div>
+                  )}
+
+                  {s6Method === 'HTTPS API' && (
+                    <>
+                      <div style={{ width: '270px', maxWidth: '100%' }}>
+                        <input 
+                          style={{ 
+                            width: '100%', 
+                            padding: '6px 8px', 
+                            border: s6ApiError ? '1px solid var(--brick)' : '1px solid var(--line)', 
+                            background: s6ApiError ? 'var(--brick-bg)' : 'var(--surface)',
+                            borderRadius: '3px', 
+                            fontSize: '12px', 
+                            color: 'var(--ink)' 
+                          }}
+                          placeholder="https://api.client.com/v1/claims"
+                          value={s6ApiUrl}
+                          onBlur={() => setS6ApiTouched(true)}
+                          onChange={(e) => {
+                            setS6ApiUrl(e.target.value);
+                            setS6ApiTouched(true);
+                          }}
+                        />
+                        {s6ApiError && (
+                          <div style={{ color: 'var(--brick)', fontSize: '10.5px', marginTop: '2px', lineHeight: 1.2 }}>
+                            {s6ApiError}
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <button 
+                          type="button" 
+                          className="btn tiny primary" 
+                          onClick={handleStep6Save}
+                          disabled={Boolean(s6ApiError) || !s6ApiUrl.trim()}
+                          style={{ padding: '6px 14px', fontWeight: 600, whiteSpace: 'nowrap', height: '29px' }}
+                        >
+                          ✓ Save API &amp; Complete
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  {s6Method === 'Manual Upload' && (
+                    <div>
+                      <button 
+                        type="button" 
+                        className="btn tiny primary" 
+                        onClick={handleStep6Save}
+                        style={{ padding: '6px 14px', fontWeight: 600, whiteSpace: 'nowrap', height: '29px' }}
+                      >
+                        ✓ Complete Step 6
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -375,8 +668,21 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
                     <input type="file" hidden accept=".835,.x12,.edi,.txt,.dat,.35,.ansi,.rem" onChange={handleStep7Upload} />
                   </label>
                   {step.inProgress && (
-                    <button className="btn tiny success" onClick={handleValidate835} style={{ fontWeight: 600 }}>
-                      ✓ Validate 835
+                    <button 
+                      type="button"
+                      className="btn tiny success" 
+                      onClick={handleValidate835} 
+                      disabled={validating835}
+                      style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      {validating835 ? (
+                        <>
+                          <span className="spinner-icon" />
+                          Validating 835...
+                        </>
+                      ) : (
+                        '✓ Validate 835'
+                      )}
                     </button>
                   )}
                 </div>
@@ -387,7 +693,13 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
               <div className="step-custom-box" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                 <div><b>Mapping Application:</b> Launch rules engine to configure 835 mapping.</div>
                 <div style={{ display: 'flex', gap: 6 }}>
-                  <button className="btn tiny primary" onClick={() => launchRedirect(`/mapping?client=${encodeURIComponent(clientId)}`, 'step_8_mapping')}>
+                  <button 
+                    type="button" 
+                    className="btn tiny primary" 
+                    onClick={() => {
+                      window.location.href = `/mapping?client=${encodeURIComponent(clientId)}`;
+                    }}
+                  >
                     Start Mapping ↗
                   </button>
                 </div>
@@ -405,7 +717,9 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
                     try {
                       await postStepData(`/clients/${encodeURIComponent(clientId)}/onboarding/steps/step_9_sftp/complete`, {});
                       onRefresh();
-                    } catch (err) { alert('Error: ' + err.message); }
+                    } catch (err) { 
+                      setFeedback({ isOpen: true, kind: 'bad', title: 'Completion Error', content: err.message, checks: [] }); 
+                    }
                   }}>✓ Complete Step 9</button>
                 </div>
               </div>
@@ -425,11 +739,16 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
                 />
                 <div style={{ marginTop: 6, textAlign: 'right' }}>
                   <button className="btn tiny success" onClick={async () => {
-                    if (!s10Notes.trim()) { alert('Step 10 Evidence Required: Please enter side-by-side 835 conversion review notes.'); return; }
+                    if (!s10Notes.trim()) { 
+                      setFeedback({ isOpen: true, kind: 'bad', title: 'Evidence Required', content: 'Step 10 Evidence Required: Please enter side-by-side 835 conversion review notes.', checks: [] }); 
+                      return; 
+                    }
                     try {
                       await postStepData(`/clients/${encodeURIComponent(clientId)}/onboarding/steps/step_10_test_review/complete`, { submission_text: s10Notes });
                       onRefresh();
-                    } catch (err) { alert('Error: ' + err.message); }
+                    } catch (err) { 
+                      setFeedback({ isOpen: true, kind: 'bad', title: 'Submission Error', content: err.message, checks: [] }); 
+                    }
                   }}>✓ Complete Step 10</button>
                 </div>
               </div>
@@ -440,38 +759,127 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
                 <div>Transmit verified test payload to client FTP server.</div>
                 <button className="btn tiny primary" onClick={async () => {
                   try {
-                    await postStepData(`/clients/${encodeURIComponent(clientId)}/steps/step_11_send_ftp/send`, {});
-                    onRefresh();
-                  } catch (err) { alert('Error: ' + err.message); }
+                    const res = await postStepData(`/clients/${encodeURIComponent(clientId)}/steps/step_11_send_ftp/send`, {});
+                    setFeedback({
+                      isOpen: true,
+                      kind: 'ok',
+                      title: res.title || 'SFTP File Transmission Verified',
+                      content: res.message || `Hello ${clientId}, we have sent the file to your SFTP.`,
+                      checks: res.checks || [
+                        { ok: true, label: 'Payload Transmission', detail: `Verified test payload generated and transferred to ${clientId} SFTP repository.` },
+                        { ok: true, label: 'Compliance Progression', detail: 'Transfer integrity confirmed. Step 11 marked as complete and Step 12 unlocked.' }
+                      ]
+                    });
+                    await onRefresh();
+                  } catch (err) { 
+                    setFeedback({ isOpen: true, kind: 'bad', title: 'FTP Transmission Error', content: err.message, checks: [] }); 
+                  }
                 }}>🚀 Send File to FTP</button>
               </div>
             )}
 
             {step.actionType === 'schedule_action' && (
-              <div className="step-custom-box">
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, fontSize: 12 }}>
-                  <div>
-                    <label style={{ display: 'block', marginBottom: 2 }}>Go-Live Date *:</label>
-                    <input type="date" style={{ width: '100%', padding: 4, border: '1px solid var(--line)' }} value={s13Date} onChange={(e) => setS13Date(e.target.value)} />
+              <div className="step-custom-box" style={{ padding: '8px 12px', background: '#F8FAFC', borderRadius: '4px', border: '1px solid var(--line-soft)', marginTop: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--ink-2)', whiteSpace: 'nowrap' }}>Date *:</label>
+                    <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+                      <input
+                        type="text"
+                        placeholder="MM-DD-YYYY"
+                        maxLength={10}
+                        style={{
+                          width: '125px',
+                          padding: '4px 26px 4px 8px',
+                          border: '1px solid var(--line)',
+                          borderRadius: '3px',
+                          fontSize: '12px',
+                          background: '#fff',
+                          color: 'var(--ink)',
+                          height: '28px',
+                          fontFamily: 'var(--mono), inherit'
+                        }}
+                        value={s13Date}
+                        onChange={(e) => setS13Date(e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (datePickerRef.current) {
+                            if (typeof datePickerRef.current.showPicker === 'function') {
+                              datePickerRef.current.showPicker();
+                            } else {
+                              datePickerRef.current.focus();
+                              datePickerRef.current.click();
+                            }
+                          }
+                        }}
+                        title="Open Calendar Picker"
+                        style={{
+                          position: 'absolute',
+                          right: '2px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          background: 'transparent',
+                          border: 'none',
+                          cursor: 'pointer',
+                          padding: '2px 4px',
+                          fontSize: '13px',
+                          lineHeight: 1,
+                          color: 'var(--ink-2)'
+                        }}
+                      >
+                        📅
+                      </button>
+                      <input
+                        ref={datePickerRef}
+                        type="date"
+                        style={{
+                          position: 'absolute',
+                          opacity: 0,
+                          pointerEvents: 'none',
+                          width: '1px',
+                          height: '1px',
+                          bottom: 0,
+                          left: 0
+                        }}
+                        value={toISODate(s13Date)}
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            setS13Date(formatToMMDDYYYY(e.target.value));
+                          }
+                        }}
+                        tabIndex={-1}
+                      />
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--ink-2)', whiteSpace: 'nowrap' }}>Time *:</label>
+                    <input
+                      type="time"
+                      style={{ width: '110px', padding: '4px 6px', border: '1px solid var(--line)', borderRadius: '3px', fontSize: '12px', background: '#fff', color: 'var(--ink)', height: '28px' }}
+                      value={s13Time}
+                      onChange={(e) => setS13Time(e.target.value)}
+                    />
+                  </div>
+                  <div style={{ flex: 1, minWidth: '180px' }}>
+                    <input
+                      style={{ width: '100%', padding: '4px 8px', border: '1px solid var(--line)', borderRadius: '3px', fontSize: '12px', background: '#fff', color: 'var(--ink)', height: '28px' }}
+                      placeholder="Meeting notes / calendar details (optional)"
+                      value={s13Notes}
+                      onChange={(e) => setS13Notes(e.target.value)}
+                    />
                   </div>
                   <div>
-                    <label style={{ display: 'block', marginBottom: 2 }}>Time *:</label>
-                    <input type="time" style={{ width: '100%', padding: 4, border: '1px solid var(--line)' }} value={s13Time} onChange={(e) => setS13Time(e.target.value)} />
+                    <button
+                      type="button"
+                      className="btn tiny primary"
+                      onClick={handleStep13Save}
+                      style={{ padding: '5px 12px', fontWeight: 600, whiteSpace: 'nowrap', height: '28px' }}
+                    >
+                      Save Schedule &amp; Complete
+                    </button>
                   </div>
-                  <div>
-                    <label style={{ display: 'block', marginBottom: 2 }}>Timezone:</label>
-                    <select style={{ width: '100%', padding: 4, border: '1px solid var(--line)' }} value={s13Tz} onChange={(e) => setS13Tz(e.target.value)}>
-                      <option value="ET">Eastern (ET)</option>
-                      <option value="CT">Central (CT)</option>
-                      <option value="PT">Pacific (PT)</option>
-                    </select>
-                  </div>
-                </div>
-                <div style={{ marginTop: 8 }}>
-                  <input style={{ width: '100%', padding: 4, border: '1px solid var(--line)', fontSize: 12 }} placeholder="Meeting participants / calendar invite details" value={s13Notes} onChange={(e) => setS13Notes(e.target.value)} />
-                </div>
-                <div style={{ marginTop: 8, textAlign: 'right' }}>
-                  <button className="btn tiny primary" onClick={handleStep13Save}>Save Schedule &amp; Complete Step 13</button>
                 </div>
               </div>
             )}
@@ -496,25 +904,80 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
       <div className="side">
         {statusTag}
         <div className="rup">
-          <button className="btn tiny" onClick={() => onOpenNotes(step.key, step.title)}>💬 Notes</button>
-          {(step.done || step.inProgress) && (
-            <button className="btn tiny danger" onClick={() => onOpenRedo(step.key, step.id)} title={`Reset Step ${step.id} to In Progress`}>
-              🔄 Redo
+          {hasValidUpload && (
+            <button
+              type="button"
+              className="btn tiny icon-btn"
+              onClick={handleViewUploadedFile}
+              title={`View Uploaded File (${latestUp?.original_filename || 'Evidence'})`}
+              aria-label="View Uploaded File"
+              disabled={viewerLoading}
+              style={{ background: 'var(--blue-bg)', borderColor: 'var(--blue)', color: 'var(--blue)' }}
+            >
+              {viewerLoading ? '…' : '👁'}
             </button>
           )}
+
           {step.file && (
-            <button className="btn tiny" onClick={() => downloadTemplateFile(clientId, step.key, step.title, step.ext)} title={`Download ${step.downloadName || 'Template'}`}>
-              ⬇ Template
+            <button
+              type="button"
+              className="btn tiny icon-btn"
+              onClick={() => downloadTemplateFile(clientId, step.key, step.title, step.ext)}
+              title={`Download Template (${step.downloadName || step.title})`}
+              aria-label={`Download Template (${step.downloadName || step.title})`}
+            >
+              ⬇
             </button>
           )}
+
           {(step.actionType === 'upload_template' || step.actionType === 'email_upload') && (
-            <label className={`btn tiny ${step.done ? 'success' : 'primary'}`} style={{ cursor: 'pointer' }}>
-              ⬆ Upload
-              <input type="file" hidden onChange={handleStandardFileUpload} />
+            <label
+              className={`btn tiny icon-btn ${step.done ? 'success' : 'primary'}`}
+              style={{ cursor: 'pointer' }}
+              title={step.actionType === 'email_upload' ? "Upload Email Confirmation (Images & Documents)" : "Upload File"}
+              aria-label="Upload File"
+            >
+              ⬆
+              <input
+                type="file"
+                hidden
+                onChange={handleStandardFileUpload}
+                accept={step.actionType === 'email_upload' ? "image/*,.png,.jpg,.jpeg,.webp,.gif,.svg,.bmp,.tiff,.tif,.ico,.avif,.pdf,.eml,.msg,.txt,.doc,.docx" : (step.ext ? `.${step.ext}` : undefined)}
+              />
             </label>
+          )}
+
+          <button
+            type="button"
+            className="btn tiny icon-btn"
+            onClick={() => onOpenNotes(step.key, step.title)}
+            title="Notes"
+            aria-label="Notes"
+          >
+            💬
+          </button>
+
+          {(step.done || step.inProgress) && (
+            <button
+              type="button"
+              className="btn tiny danger icon-btn"
+              onClick={() => onOpenRedo(step.key, step.id)}
+              title={`Redo Step ${step.id}`}
+              aria-label={`Redo Step ${step.id}`}
+            >
+              🔄
+            </button>
           )}
         </div>
       </div>
+
+      <FileViewerModal
+        isOpen={isViewerOpen}
+        onClose={() => setIsViewerOpen(false)}
+        fileData={viewerFile}
+        stepTitle={step.title}
+        stepNum={step.id}
+      />
 
       <FeedbackModal
         isOpen={feedback.isOpen}

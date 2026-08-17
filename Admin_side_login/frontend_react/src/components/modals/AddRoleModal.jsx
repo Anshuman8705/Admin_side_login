@@ -7,18 +7,22 @@ export default function AddRoleModal({ isOpen, onClose, onRoleAdded }) {
   const [roleDesc, setRoleDesc] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const [roleError, setRoleError] = useState('');
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!roleName.trim()) return;
     setLoading(true);
+    setRoleError('');
     try {
       await addEmployeeRole(roleName.trim(), roleDesc.trim());
       setRoleName('');
       setRoleDesc('');
+      setRoleError('');
       if (onRoleAdded) onRoleAdded();
       onClose();
     } catch (err) {
-      alert('Error: ' + err.message);
+      setRoleError(err.message || 'Failed to add role.');
     } finally {
       setLoading(false);
     }
@@ -33,7 +37,10 @@ export default function AddRoleModal({ isOpen, onClose, onRoleAdded }) {
           <input
             placeholder="e.g. EDI Support Engineer"
             value={roleName}
-            onChange={(e) => setRoleName(e.target.value)}
+            onChange={(e) => {
+              setRoleName(e.target.value);
+              if (roleError) setRoleError('');
+            }}
             required
             autoFocus
           />
@@ -46,6 +53,11 @@ export default function AddRoleModal({ isOpen, onClose, onRoleAdded }) {
             onChange={(e) => setRoleDesc(e.target.value)}
           />
         </div>
+        {roleError && (
+          <div style={{ color: 'var(--brick)', fontSize: '11.5px', marginTop: '6px' }}>
+            ✕ {roleError}
+          </div>
+        )}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
           <button type="submit" className="btn primary" disabled={loading}>

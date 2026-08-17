@@ -51,9 +51,9 @@ export default function AccessView({ currentUser }) {
 
       <div className="metrics">
         <div className="metric">
-          <div className="v">{currentUser?.name || 'Vikram J.'}</div>
+          <div className="v">{accessData?.current_admin?.name || currentUser?.name || 'admin'}</div>
           <div className="l">Current Admin</div>
-          <div className="d">{currentUser?.role || 'Platform Admin'}</div>
+          <div className="d">{accessData?.current_admin?.role || currentUser?.role || 'Admin'}</div>
         </div>
         <div className="metric">
           <div className="v" style={{ fontSize: '18px' }}>
@@ -63,14 +63,16 @@ export default function AccessView({ currentUser }) {
           <div className="d">Dynamic database record</div>
         </div>
         <div className="metric">
-          <div className="v">Hardware Key</div>
+          <div className="v" style={{ fontSize: '18px' }}>
+            {accessData?.current_admin?.mfa_status || (accessData ? 'Password Only' : 'Loading...')}
+          </div>
           <div className="l">MFA Status</div>
-          <div className="d">FIDO2 / WebAuthn</div>
+          <div className="d">{accessData?.current_admin?.mfa_desc || 'Dynamic verification'}</div>
         </div>
         <div className="metric">
-          <div className="v">Active</div>
+          <div className="v">{accessData?.current_admin?.session_state || 'Active'}</div>
           <div className="l">Session State</div>
-          <div className="d">30-min auto-expire</div>
+          <div className="d">{accessData?.current_admin?.session_desc || '30-min auto-expire'}</div>
         </div>
       </div>
 
@@ -109,46 +111,6 @@ export default function AccessView({ currentUser }) {
                   <td><span className="tag ok">{member.status}</span></td>
                 </tr>
               ))}
-            </tbody>
-          </table>
-
-          <h2 className="sec">Recent Administrator Login History</h2>
-          <table style={{ width: '100%', tableLayout: 'fixed' }}>
-            <thead>
-              <tr>
-                <th>Login Timestamp</th>
-                <th>Admin Username</th>
-                <th>IP Address</th>
-                <th>Client User Agent</th>
-                <th>Status</th>
-                <th>Logout Time</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(accessData?.recent_logins || []).length === 0 ? (
-                <tr>
-                  <td colSpan="6" style={{ textAlign: 'center', color: 'var(--ink-3)', padding: '16px' }}>
-                    No recent logins recorded.
-                  </td>
-                </tr>
-              ) : (
-                (accessData?.recent_logins || []).map((log) => (
-                  <tr key={log.id}>
-                    <td className="num">{formatDate(log.login_time)}</td>
-                    <td><b>{log.username}</b></td>
-                    <td><code>{log.ip_address}</code></td>
-                    <td style={{ fontSize: '12px', color: 'var(--ink-2)', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {log.user_agent}
-                    </td>
-                    <td>
-                      <span className={`tag ${log.status === 'SUCCESS' ? 'ok' : 'bad'}`}>
-                        {log.status}
-                      </span>
-                    </td>
-                    <td className="num">{formatDate(log.logout_time)}</td>
-                  </tr>
-                ))
-              )}
             </tbody>
           </table>
         </>

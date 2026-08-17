@@ -19,8 +19,11 @@ export default function NotesModal({ isOpen, onClose, clientId, stepKey, stepTit
   const [newNote, setNewNote] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const [noteError, setNoteError] = useState('');
+
   useEffect(() => {
     if (isOpen && clientId && stepKey) {
+      setNoteError('');
       loadNotes();
     }
   }, [isOpen, clientId, stepKey]);
@@ -38,13 +41,14 @@ export default function NotesModal({ isOpen, onClose, clientId, stepKey, stepTit
     e.preventDefault();
     if (!newNote.trim()) return;
     setLoading(true);
+    setNoteError('');
     try {
       await addNote(clientId, stepKey, newNote.trim());
       setNewNote('');
       await loadNotes();
       onClose(); // Close the modal immediately after saving
     } catch (e) {
-      alert('Error: ' + e.message);
+      setNoteError(e.message || 'Failed to save note.');
     } finally {
       setLoading(false);
     }
@@ -80,6 +84,11 @@ export default function NotesModal({ isOpen, onClose, clientId, stepKey, stepTit
             onChange={(e) => setNewNote(e.target.value)}
           />
         </div>
+        {noteError && (
+          <div style={{ color: 'var(--brick)', fontSize: '11.5px', marginTop: '6px' }}>
+            ✕ {noteError}
+          </div>
+        )}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '14px' }}>
           <button type="button" className="btn" onClick={onClose}>Close</button>
           <button type="submit" className="btn primary" disabled={loading}>

@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from .models import (
     Client, OnboardingPhase, OnboardingStepDefinition, ClientStepStatus,
-    StepUpload, StepNote, EmployeeRole, ClientContact, ClaimSystemVerification,
+    StepUpload, StepNote, GoLiveStepNote, EmployeeRole, ClientContact, ClaimSystemVerification,
     ClientTransferConfig, StepSchedule, StepTextSubmission, AuditLog,
     ClientDocument, ClientTestEnvironment, GoLiveStepDefinition, ClientGoLiveStatus,
     ClientGoLiveSFTP, ClientGoLiveSchedule, ClientGoLiveComment, LoginHistory
@@ -17,7 +17,7 @@ class ClientSerializer(serializers.ModelSerializer):
         model = Client
         fields = [
             'id', 'name', 'code', 'claims_system', 'claimsSystem',
-            'owner', 'state', 'stage', 'contact_info', 'contactInfo',
+            'owner', 'stage', 'contact_info', 'contactInfo',
             'live_since', 'liveSince', 'last_file', 'lastFile',
             'progress_pct', 'created_at', 'updated_at'
         ]
@@ -54,6 +54,12 @@ class StepUploadSerializer(serializers.ModelSerializer):
 class StepNoteSerializer(serializers.ModelSerializer):
     class Meta:
         model = StepNote
+        fields = ['id', 'client', 'step', 'note_text', 'author', 'created_at']
+
+
+class GoLiveStepNoteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GoLiveStepNote
         fields = ['id', 'client', 'step', 'note_text', 'author', 'created_at']
 
 

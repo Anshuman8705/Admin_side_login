@@ -45,7 +45,8 @@
 .mapping-tool-wrapper .mono{font-family:var(--mono)}
 .mapping-tool-wrapper .fieldid{font:600 11px var(--mono)}
 .mapping-tool-wrapper .name{font-weight:600}
-.mapping-tool-wrapper .descdot{display:inline-block;margin-left:5px;color:#8898a8;cursor:help}
+.mapping-tool-wrapper .descdot, .descdot{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;background:#E2E8F0;color:#64748B;font-size:9.5px;font-weight:700;font-family:var(--mono);margin-left:6px;vertical-align:1px;cursor:help;line-height:1;transition:background .15s ease,color .15s ease}
+.mapping-tool-wrapper .descdot:hover, .descdot:hover{background:#42556B;color:#fff}
 .mapping-tool-wrapper .meta{color:var(--muted);font:11px var(--mono);white-space:nowrap}
 .mapping-tool-wrapper .maptype{display:inline-block;border-radius:999px;padding:3px 8px;font:10px var(--mono);white-space:nowrap}
 .mapping-tool-wrapper .direct{background:var(--blue-bg);color:var(--blue)} 

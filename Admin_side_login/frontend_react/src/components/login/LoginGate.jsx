@@ -19,7 +19,7 @@ export default function LoginGate({ onLoginSuccess }) {
     }
     setErrorMsg('');
     setLoading(true);
-    
+
     try {
       const res = await loginAdmin(email, password, '');
       if (res.require_setup) {
@@ -93,7 +93,7 @@ export default function LoginGate({ onLoginSuccess }) {
               <form className="step0" onSubmit={handleRegister}>
                 <h1>Create Admin Account</h1>
                 <p className="h">Register a new administrator access account.</p>
-                
+
                 {errorMsg && <div className="err on">{errorMsg}</div>}
 
                 <div className="field">
@@ -118,7 +118,7 @@ export default function LoginGate({ onLoginSuccess }) {
                     required
                   />
                 </div>
-                
+
                 <div className="field">
                   <label htmlFor="p">Password</label>
                   <input
@@ -130,7 +130,7 @@ export default function LoginGate({ onLoginSuccess }) {
                     required
                   />
                 </div>
-                
+
                 <button type="submit" className="full" id="go0" disabled={loading}>
                   {loading ? 'Creating account…' : 'Sign Up'}
                 </button>
@@ -149,7 +149,7 @@ export default function LoginGate({ onLoginSuccess }) {
               <form className="step1" onSubmit={handleContinue}>
                 <h1>Admin Sign In</h1>
                 <p className="h">Administrator access to client onboarding, compliance evidence, and integrations.</p>
-                
+
                 {errorMsg && <div className="err on">{errorMsg}</div>}
 
                 <div className="field">
@@ -163,7 +163,7 @@ export default function LoginGate({ onLoginSuccess }) {
                     required
                   />
                 </div>
-                
+
                 <div className="field">
                   <label htmlFor="p">Password</label>
                   <input
@@ -175,7 +175,7 @@ export default function LoginGate({ onLoginSuccess }) {
                     required
                   />
                 </div>
-                
+
                 <button type="submit" className="full" id="go1" disabled={loading}>
                   {loading ? 'Signing In…' : 'Continue'}
                 </button>
@@ -194,9 +194,9 @@ export default function LoginGate({ onLoginSuccess }) {
               <form className="step2 on" onSubmit={handleSignIn}>
                 <h1>Second Factor</h1>
                 <p className="h">Enter the 6-digit code from your authenticator app.</p>
-                
+
                 {errorMsg && <div className="err on">{errorMsg}</div>}
-                
+
                 <div className="field otp">
                   <label htmlFor="o">Authenticator code</label>
                   <input
@@ -209,7 +209,7 @@ export default function LoginGate({ onLoginSuccess }) {
                     autoFocus
                   />
                 </div>
-                
+
                 <button type="submit" className="full" id="go2" disabled={loading}>
                   {loading ? 'Verifying…' : 'Sign In'}
                 </button>
@@ -228,13 +228,13 @@ export default function LoginGate({ onLoginSuccess }) {
               <form className="step3 on" onSubmit={handleSignIn}>
                 <h1>Set Up Authenticator</h1>
                 <p className="h">Scan the QR code below with your mobile authenticator app (like Google Authenticator).</p>
-                
+
                 <div style={{ textAlign: 'center', margin: '20px 0' }}>
                   {qrBase64 && <img src={`data:image/png;base64,${qrBase64}`} alt="QR Code" style={{ width: '150px', height: '150px' }} />}
                 </div>
 
                 {errorMsg && <div className="err on">{errorMsg}</div>}
-                
+
                 <div className="field otp">
                   <label htmlFor="o">Enter 6-digit code to verify</label>
                   <input
@@ -247,7 +247,7 @@ export default function LoginGate({ onLoginSuccess }) {
                     autoFocus
                   />
                 </div>
-                
+
                 <button type="submit" className="full" id="go3" disabled={loading}>
                   {loading ? 'Verifying…' : 'Complete Setup & Sign In'}
                 </button>

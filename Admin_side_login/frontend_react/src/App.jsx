@@ -3,17 +3,56 @@ import Header from './components/Header';
 import ClientsTable from './components/ClientsTable';
 import OnboardingLadder from './components/OnboardingLadder';
 import DocumentsView from './components/DocumentsView';
-import TestEnvironmentView from './components/TestEnvironmentView';
 import GoLiveView from './components/GoLiveView';
 import AccessView from './components/AccessView';
 import AddClientModal from './components/modals/AddClientModal';
 import NotesModal from './components/modals/NotesModal';
 import AddRoleModal from './components/modals/AddRoleModal';
 import RedoConfirmModal from './components/modals/RedoConfirmModal';
+import RevokeClientModal from './components/modals/RevokeClientModal';
+import FeedbackModal from './components/modals/FeedbackModal';
 import LoginGate from './components/login/LoginGate';
 import MappingApp from './components/MappingTool/MappingApp';
 
-import { fetchClients, fetchClientState, createClient, deleteClient, redoStep, fetchEmployeeRoles, fetchAuditLogs, logoutAdmin } from './services/api';
+import { fetchClients, fetchClientState, createClient, deleteClient, redoStep, fetchEmployeeRoles, fetchAuditLogs, fetchAccessInfo, logoutAdmin } from './services/api';
+
+function formatDateTime(isoStr) {
+  if (!isoStr) return '—';
+  try {
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return isoStr;
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    const hh = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
+  } catch (e) {
+    return isoStr;
+  }
+}
+
+function renderAuditDetails(details) {
+  if (!details) return '—';
+  const match = details.match(/^(.*?) changed from '(.*?)' to '(.*?)'(.*)$/i);
+  if (match) {
+    const [, prefix, oldVal, newVal, suffix] = match;
+    return (
+      <span>
+        {prefix && <span>{prefix} </span>}
+        <span style={{ textDecoration: 'line-through', color: 'var(--brick)', opacity: 0.85, marginRight: '4px' }}>
+          '{oldVal}'
+        </span>
+        <span style={{ color: 'var(--ink-2)', marginRight: '4px', fontWeight: 600 }}>→</span>
+        <span style={{ fontWeight: 600, color: 'var(--teal)' }}>
+          '{newVal}'
+        </span>
+        {suffix && <span> {suffix}</span>}
+      </span>
+    );
+  }
+  return details;
+}
 
 export default function App() {
   const isMappingRoute = window.location.pathname.startsWith('/mapping');
@@ -30,42 +69,65 @@ export default function App() {
   });
 
   const [clients, setClients] = useState([]);
-  const [activeClientId, setActiveClientId] = useState('');
+  const [activeClientId, setActiveClientId] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('client') || '';
+  });
   const [clientState, setClientState] = useState(null);
-  const [activeNav, setActiveNav] = useState('clients'); // default to All Clients page
+  const [activeNav, setActiveNav] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    const n = params.get('nav');
+    if (n === 'onboarding' || n === 'onboard') return 'onboard';
+    if (n) return n;
+    if (params.get('client')) return 'onboard';
+    return 'clients';
+  });
   const [roles, setRoles] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
-  const [auditModuleFilter, setAuditModuleFilter] = useState('');
+  const [recentLogins, setRecentLogins] = useState([]);
   const [auditClientFilter, setAuditClientFilter] = useState('');
+  const [auditModuleFilter, setAuditModuleFilter] = useState('');
 
   // Modal states
   const [isAddClientOpen, setIsAddClientOpen] = useState(false);
   const [isNotesOpen, setIsNotesOpen] = useState(false);
   const [activeNoteTarget, setActiveNoteTarget] = useState({ stepKey: '', stepTitle: '' });
   const [isAddRoleOpen, setIsAddRoleOpen] = useState(false);
+  const [appFeedback, setAppFeedback] = useState({ isOpen: false, kind: 'ok', title: '', content: '' });
   const [isRedoOpen, setIsRedoOpen] = useState(false);
   const [redoTarget, setRedoTarget] = useState({ stepKey: '', stepNum: null });
   const [redoLoading, setRedoLoading] = useState(false);
+  const [isRevokeOpen, setIsRevokeOpen] = useState(false);
+  const [revokeTarget, setRevokeTarget] = useState(null);
+  const [revokeLoading, setRevokeLoading] = useState(false);
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (!isAuthenticated) return;
+    loadClients();
+    loadRoles();
+    loadAuditLogs();
+
+    // Auto-update client status in real-time every 3 seconds
+    const interval = setInterval(() => {
       loadClients();
-      loadRoles();
-      loadAuditLogs();
-    }
-  }, [isAuthenticated]);
+      if (activeClientId) {
+        loadClientWorkflow(activeClientId);
+      }
+    }, 3000);
 
-  useEffect(() => {
-    if (activeNav === 'audit') {
-      loadAuditLogs(auditClientFilter, auditModuleFilter);
-    }
-  }, [activeNav, auditClientFilter, auditModuleFilter]);
+    const onFocus = () => {
+      loadClients();
+      if (activeClientId) {
+        loadClientWorkflow(activeClientId);
+      }
+    };
+    window.addEventListener('focus', onFocus);
 
-  useEffect(() => {
-    if (activeClientId) {
-      loadClientWorkflow(activeClientId);
-    }
-  }, [activeClientId]);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [isAuthenticated, activeClientId]);
 
   const loadClients = async () => {
     try {
@@ -93,6 +155,8 @@ export default function App() {
     try {
       const logs = await fetchAuditLogs(cid, mod);
       setAuditLogs(logs);
+      const accessData = await fetchAccessInfo();
+      setRecentLogins(accessData.recent_logins || []);
     } catch (err) {
       console.error('Failed to load audit logs:', err);
     }
@@ -112,19 +176,48 @@ export default function App() {
     loadClientWorkflow(clientId);
   };
 
-  const handleDeleteClient = async (clientId) => {
-    if (!window.confirm("Are you sure you want to permanently delete (revoke) this client?")) return;
+  const handleSelectClientInGoLive = (clientId) => {
+    setActiveClientId(clientId);
+    loadClientWorkflow(clientId);
+    const target = clients.find(c => c.id === clientId);
+    const stage = (target?.stage || '').toLowerCase().replace(/[\s-]/g, '_');
+    const isCompleted = (target?.progress_pct >= 100) || stage === 'onboarding_completed' || stage === 'golive_pending' || stage === 'production_pending' || stage === 'production';
+
+    if (!isCompleted) {
+      // Incomplete onboarding -> Redirect to Onboarding for that client
+      setActiveNav('onboard');
+    } else {
+      // All onboarding steps complete -> Stay in Go Live
+      setActiveNav('promote');
+    }
+  };
+
+  const handleOpenRevoke = (client) => {
+    const target = typeof client === 'string' 
+      ? clients.find(c => c.id === client) || { id: client, name: client } 
+      : client;
+    setRevokeTarget(target);
+    setIsRevokeOpen(true);
+  };
+
+  const handleConfirmRevoke = async () => {
+    if (!revokeTarget?.id) return;
+    setRevokeLoading(true);
     try {
-      await deleteClient(clientId);
-      loadClients();
-      if (activeClientId === clientId) {
+      await deleteClient(revokeTarget.id);
+      await loadClients();
+      if (activeClientId === revokeTarget.id) {
         setActiveClientId(null);
         setClientState(null);
         setActiveNav('clients');
       }
+      setIsRevokeOpen(false);
+      setRevokeTarget(null);
     } catch (err) {
-      console.error('Failed to delete client:', err);
-      alert('Failed to delete client: ' + err.message);
+      console.error('Failed to revoke client:', err);
+      setAppFeedback({ isOpen: true, kind: 'bad', title: 'Revocation Failed', content: err.message });
+    } finally {
+      setRevokeLoading(false);
     }
   };
 
@@ -153,7 +246,7 @@ export default function App() {
       await loadClients();
       setIsRedoOpen(false);
     } catch (err) {
-      alert(`Redo failed: ${err.message}`);
+      setAppFeedback({ isOpen: true, kind: 'bad', title: 'Redo Failed', content: err.message });
     } finally {
       setRedoLoading(false);
     }
@@ -182,7 +275,16 @@ export default function App() {
   }
 
   if (isMappingRoute) {
-    return <MappingApp />;
+    return (
+      <MappingApp
+        clients={clients}
+        activeClientId={activeClientId}
+        currentClient={currentClient}
+        onSelectClient={handleSelectClient}
+        onSignOut={handleSignOut}
+        currentUser={currentUser}
+      />
+    );
   }
 
   return (
@@ -213,9 +315,6 @@ export default function App() {
           </button>
 
           <div className="grp eyebrow" style={{ paddingTop: '18px' }}>Pre-Production</div>
-          <button className={`navitem ${activeNav === 'sandbox' ? 'on' : ''}`} onClick={() => setActiveNav('sandbox')}>
-            <span>Test Environment</span>
-          </button>
           <button className={`navitem ${activeNav === 'promote' ? 'on' : ''}`} onClick={() => setActiveNav('promote')}>
             <span>Go Live</span>
           </button>
@@ -249,14 +348,14 @@ export default function App() {
                 setActiveNav('onboard');
               }}
               onOpenAddClient={() => setIsAddClientOpen(true)}
-              onDeleteClient={handleDeleteClient}
+              onDeleteClient={handleOpenRevoke}
             />
           )}
 
-          {activeNav === 'onboard' && clientState && (
+          {(activeNav === 'onboard' || activeNav === 'onboarding') && (
             <OnboardingLadder
-              client={clientState.client}
-              steps={clientState.steps}
+              client={clientState?.client || clients.find(c => c.id === activeClientId)}
+              steps={clientState?.steps || []}
               roles={roles}
               clients={clients}
               onSelectClient={handleSelectClient}
@@ -275,20 +374,13 @@ export default function App() {
             />
           )}
 
-          {activeNav === 'sandbox' && (
-            <TestEnvironmentView
-              clients={clients}
-              activeClientId={activeClientId}
-              onSelectClient={handleSelectClient}
-            />
-          )}
-
           {activeNav === 'promote' && (
             <GoLiveView
               clients={clients}
               activeClientId={activeClientId}
-              onSelectClient={handleSelectClient}
+              onSelectClient={handleSelectClientInGoLive}
               onClientUpdated={() => { loadClients(); loadClientWorkflow(activeClientId); }}
+              onOpenNotes={handleOpenNotes}
             />
           )}
 
@@ -439,8 +531,48 @@ export default function App() {
                         <td><span className="tag" style={{ textTransform: 'uppercase', fontSize: '10px' }}>{log.module || 'SYSTEM'}</span></td>
                         <td><span className="tag ok">{log.action}</span></td>
                         <td><b>{log.client_name || log.client || 'System'}</b></td>
-                        <td>{log.details}</td>
+                        <td>{renderAuditDetails(log.details)}</td>
                         <td className="num">{log.performed_by || 'Admin User'}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+
+              <h2 className="sec" style={{ marginTop: '28px' }}>Recent Administrator Login History</h2>
+              <table style={{ width: '100%', tableLayout: 'fixed' }}>
+                <thead>
+                  <tr>
+                    <th>Login Timestamp</th>
+                    <th>Admin Username</th>
+                    <th>IP Address</th>
+                    <th>Client User Agent</th>
+                    <th>Status</th>
+                    <th>Logout Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentLogins.length === 0 ? (
+                    <tr>
+                      <td colSpan="6" style={{ textAlign: 'center', color: 'var(--ink-3)', padding: '16px' }}>
+                        No recent logins recorded.
+                      </td>
+                    </tr>
+                  ) : (
+                    recentLogins.map((log) => (
+                      <tr key={log.id}>
+                        <td className="num">{formatDateTime(log.login_time)}</td>
+                        <td><b>{log.username}</b></td>
+                        <td><code>{log.ip_address}</code></td>
+                        <td style={{ fontSize: '12px', color: 'var(--ink-2)', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {log.user_agent}
+                        </td>
+                        <td>
+                          <span className={`tag ${log.status === 'SUCCESS' ? 'ok' : 'bad'}`}>
+                            {log.status}
+                          </span>
+                        </td>
+                        <td className="num">{formatDateTime(log.logout_time)}</td>
                       </tr>
                     ))
                   )}
@@ -505,6 +637,23 @@ export default function App() {
         stepNum={redoTarget.stepNum}
         onConfirm={handleConfirmRedo}
         loading={redoLoading}
+      />
+
+      <RevokeClientModal
+        isOpen={isRevokeOpen}
+        onClose={() => { if (!revokeLoading) setIsRevokeOpen(false); }}
+        client={revokeTarget}
+        onConfirm={handleConfirmRevoke}
+        loading={revokeLoading}
+      />
+
+      <FeedbackModal
+        isOpen={appFeedback.isOpen}
+        onClose={() => setAppFeedback({ ...appFeedback, isOpen: false })}
+        kind={appFeedback.kind}
+        title={appFeedback.title}
+        content={appFeedback.content}
+        checks={[]}
       />
     </>
   );

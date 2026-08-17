@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ClientSelectDropdown from './ClientSelectDropdown';
-import { fetchClientDocuments, uploadClientDocument, downloadDocumentFile } from '../services/api';
+import { fetchClientDocuments, uploadClientDocument, downloadDocumentFile, fetchDocumentFile } from '../services/api';
+import FileViewerModal from './modals/FileViewerModal';
 
 export default function DocumentsView({ clients = [], activeClientId, onSelectClient }) {
   const [selectedClientId, setSelectedClientId] = useState(activeClientId || (clients[0]?.id || ''));
@@ -8,6 +9,10 @@ export default function DocumentsView({ clients = [], activeClientId, onSelectCl
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [downloadingId, setDownloadingId] = useState(null);
+  const [viewingId, setViewingId] = useState(null);
+  const [viewerFile, setViewerFile] = useState(null);
+  const [isViewerOpen, setIsViewerOpen] = useState(false);
+  const [viewerDocTitle, setViewerDocTitle] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const fileInputRef = useRef(null);
@@ -61,6 +66,21 @@ export default function DocumentsView({ clients = [], activeClientId, onSelectCl
     }
   }
 
+  async function handleView(doc) {
+    setViewingId(doc.id);
+    setErrorMessage('');
+    try {
+      const data = await fetchDocumentFile(doc.id, doc.original_filename);
+      setViewerFile(data);
+      setViewerDocTitle(doc.document_name);
+      setIsViewerOpen(true);
+    } catch (err) {
+      setErrorMessage(`Failed to preview ${doc.document_name}: ${err.message}`);
+    } finally {
+      setViewingId(null);
+    }
+  }
+
   async function handleFileUpload(e) {
     const file = e.target.files?.[0];
     if (!file || !selectedClientId) return;
@@ -108,7 +128,6 @@ export default function DocumentsView({ clients = [], activeClientId, onSelectCl
           </div>
           <p className="sub">Executed legal agreements, compliance certificates, and evidence files associated with <b>{currentClient?.name}</b>.</p>
         </div>
-
       </div>
 
       {errorMessage && (
@@ -131,22 +150,22 @@ export default function DocumentsView({ clients = [], activeClientId, onSelectCl
         <div className="stub" style={{ textAlign: 'center', padding: '36px' }}>
           <b>No documents available for this client.</b>
           <p style={{ margin: '6px 0 0', color: 'var(--ink-2)' }}>
-            Upload legal agreements, compliance forms, or test data for {currentClient?.name} using the button above.
+            Upload legal agreements, compliance forms, or test data for {currentClient?.name} using the onboarding workflow.
           </p>
         </div>
       ) : (
-        <table style={{ width: '100%', tableLayout: 'fixed' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
-              <th>Document</th>
-              <th>Direction</th>
-              <th>Template / Filename</th>
-              <th>Category</th>
-              <th>Format</th>
-              <th>Size</th>
-              <th>Uploaded By</th>
-              <th>Status</th>
-              <th style={{ textAlign: 'right', verticalAlign: 'middle' }}>Actions</th>
+              <th style={{ width: '18%' }}>Document</th>
+              <th style={{ width: '13%' }}>Direction</th>
+              <th style={{ width: '22%' }}>Template / Filename</th>
+              <th style={{ width: '15%' }}>Category</th>
+              <th style={{ width: '6%' }}>Format</th>
+              <th style={{ width: '7%' }}>Size</th>
+              <th style={{ width: '9%' }}>Uploaded By</th>
+              <th style={{ width: '10%' }}>Status</th>
+              <th style={{ width: '8%', textAlign: 'right' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -154,11 +173,21 @@ export default function DocumentsView({ clients = [], activeClientId, onSelectCl
               const ext = (doc.original_filename?.split('.').pop() || 'PDF').toUpperCase();
               return (
                 <tr key={doc.id}>
-                  <td><b>{doc.document_name}</b></td>
-                  <td>{doc.direction || 'Client → OneSmarter'}</td>
-                  <td><code style={{ fontSize: '11.5px' }}>{doc.original_filename}</code></td>
+                  <td>
+                    <b>{doc.document_name}</b>
+                  </td>
+                  <td style={{ color: 'var(--ink-2)' }}>
+                    {doc.direction || 'Client → OneSmarter'}
+                  </td>
+                  <td>
+                    <code style={{ fontSize: '11.5px', wordBreak: 'break-all', display: 'inline-block' }}>
+                      {doc.original_filename}
+                    </code>
+                  </td>
                   <td>{doc.document_type || 'Legal / Confidentiality'}</td>
-                  <td>{ext}</td>
+                  <td>
+                    <span className="mono" style={{ fontSize: '11px' }}>{ext}</span>
+                  </td>
                   <td className="num">{formatBytes(doc.file_size)}</td>
                   <td>{doc.uploaded_by || 'Admin User'}</td>
                   <td>
@@ -167,14 +196,29 @@ export default function DocumentsView({ clients = [], activeClientId, onSelectCl
                     </span>
                   </td>
                   <td style={{ textAlign: 'right', verticalAlign: 'middle' }}>
-                    <button
-                      type="button"
-                      className="btn tiny primary"
-                      disabled={downloadingId === doc.id}
-                      onClick={() => handleDownload(doc)}
-                    >
-                      {downloadingId === doc.id ? 'Downloading...' : '⬇ Download'}
-                    </button>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' }}>
+                      <button
+                        type="button"
+                        className="btn tiny icon-btn"
+                        onClick={() => handleView(doc)}
+                        title={`View ${doc.document_name}`}
+                        aria-label={`View ${doc.document_name}`}
+                        disabled={viewingId === doc.id}
+                        style={{ background: 'var(--blue-bg)', borderColor: 'var(--blue)', color: 'var(--blue)' }}
+                      >
+                        {viewingId === doc.id ? '…' : '👁'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn tiny primary icon-btn"
+                        disabled={downloadingId === doc.id}
+                        onClick={() => handleDownload(doc)}
+                        title={`Download ${doc.document_name}`}
+                        aria-label={`Download ${doc.document_name}`}
+                      >
+                        {downloadingId === doc.id ? '…' : '⬇'}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );
@@ -182,6 +226,14 @@ export default function DocumentsView({ clients = [], activeClientId, onSelectCl
           </tbody>
         </table>
       )}
+
+      <FileViewerModal
+        isOpen={isViewerOpen}
+        onClose={() => setIsViewerOpen(false)}
+        fileData={viewerFile}
+        stepTitle={viewerDocTitle}
+        stepNum=""
+      />
     </section>
   );
 }

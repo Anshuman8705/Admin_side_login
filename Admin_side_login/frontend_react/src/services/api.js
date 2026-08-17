@@ -98,6 +98,21 @@ export async function downloadTemplateFile(clientId, stepKey, title, ext) {
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
 }
 
+export async function fetchStepUploadFile(clientId, stepKey) {
+  const res = await fetch(`${BASE_URL}/clients/${encodeURIComponent(clientId)}/steps/${encodeURIComponent(stepKey)}/file`, {
+    headers: getAuthHeaders()
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to load uploaded file');
+  }
+  const contentType = res.headers.get('Content-Type') || '';
+  const filename = res.headers.get('X-OneSmarter-Filename') || 'evidence_file';
+  const blob = await res.blob();
+  const fileUrl = URL.createObjectURL(blob);
+  return { fileUrl, contentType, filename, blob };
+}
+
 export async function uploadStepFile(clientId, stepKey, file) {
   const res = await fetch(`${BASE_URL}/clients/${encodeURIComponent(clientId)}/steps/${encodeURIComponent(stepKey)}/upload`, {
     method: 'POST',
@@ -220,6 +235,18 @@ export async function uploadClientDocument(clientId, file, docName = '', docType
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Document upload failed');
   return data;
+}
+
+export async function fetchDocumentFile(docId, defaultFilename = 'document.pdf') {
+  const res = await fetch(`${BASE_URL}/documents/${encodeURIComponent(docId)}/download/`, {
+    headers: getAuthHeaders()
+  });
+  if (!res.ok) throw new Error('Document download failed');
+  const filename = res.headers.get('X-OneSmarter-Filename') || defaultFilename;
+  const contentType = res.headers.get('Content-Type') || (filename.endsWith('.pdf') ? 'application/pdf' : 'text/plain');
+  const blob = await res.blob();
+  const fileUrl = URL.createObjectURL(blob);
+  return { fileUrl, contentType, filename, blob };
 }
 
 export async function downloadDocumentFile(docId, defaultFilename = 'document.pdf') {

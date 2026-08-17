@@ -10,15 +10,54 @@ function formatDate(dateVal) {
   return `${dd}/${mm}/${yyyy}`;
 }
 
+function getStageBadge(stage) {
+  const s = (stage || '').toLowerCase().replace(/[\s-]/g, '_');
+  if (s === 'production') {
+    return <span className="tag ok">Production</span>;
+  }
+  if (s === 'production_pending') {
+    return <span className="tag amber">Production Pending</span>;
+  }
+  if (s === 'golive_pending' || s === 'go_live_pending') {
+    return <span className="tag purple">Go Live Pending</span>;
+  }
+  if (s === 'onboarding_completed' || s === 'onboarding_complete') {
+    return <span className="tag blue">Onboarding Completed</span>;
+  }
+  return <span className="tag work">Onboarding Pending</span>;
+}
+
 export default function ClientsTable({ clients, onSelectClient, onOpenAddClient, onDeleteClient }) {
   const [filterStage, setFilterStage] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
 
-  const prodCount = clients.filter(c => c.stage === 'production').length;
-  const onbCount = clients.filter(c => c.stage !== 'production').length;
+  const prodCount = clients.filter(c => (c.stage || '').toLowerCase() === 'production').length;
+  const prodPendingCount = clients.filter(c => {
+    const s = (c.stage || '').toLowerCase().replace(/[\s-]/g, '_');
+    return s === 'production_pending';
+  }).length;
+  const goliveCount = clients.filter(c => {
+    const s = (c.stage || '').toLowerCase().replace(/[\s-]/g, '_');
+    return s === 'golive_pending' || s === 'go_live_pending';
+  }).length;
+  const onbDoneCount = clients.filter(c => {
+    const s = (c.stage || '').toLowerCase().replace(/[\s-]/g, '_');
+    return s === 'onboarding_completed';
+  }).length;
+  const onbPendingCount = clients.filter(c => {
+    const s = (c.stage || '').toLowerCase().replace(/[\s-]/g, '_');
+    return s === 'onboarding_pending' || s === 'onboarding';
+  }).length;
 
   const filteredClients = clients.filter((c) => {
-    const matchesStage = filterStage === 'all' || (filterStage === 'production' ? c.stage === 'production' : c.stage !== 'production');
+    const s = (c.stage || '').toLowerCase().replace(/[\s-]/g, '_');
+    let matchesStage = true;
+    if (filterStage === 'onboarding_pending') matchesStage = s === 'onboarding_pending' || s === 'onboarding';
+    else if (filterStage === 'onboarding_completed') matchesStage = s === 'onboarding_completed';
+    else if (filterStage === 'golive_pending') matchesStage = s === 'golive_pending' || s === 'go_live_pending';
+    else if (filterStage === 'production_pending') matchesStage = s === 'production_pending';
+    else if (filterStage === 'production') matchesStage = s === 'production';
+
     const searchLower = searchTerm.toLowerCase();
     const matchesSearch =
       c.name.toLowerCase().includes(searchLower) ||
@@ -48,27 +87,30 @@ export default function ClientsTable({ clients, onSelectClient, onOpenAddClient,
           <div className="d">Delivering MIR to MPL</div>
         </div>
         <div className="metric">
-          <div className="v" id="stat-onb">{onbCount}</div>
-          <div className="l">Onboarding</div>
-          <div className="d">Active Sequential Workflow</div>
+          <div className="v" id="stat-prod-pending">{prodPendingCount}</div>
+          <div className="l">Production Pending</div>
+          <div className="d">Cutover Window Scheduled</div>
         </div>
         <div className="metric">
-          <div className="v">{clients.length > 0 ? `${Math.round(clients.reduce((acc, c) => acc + (c.progress_pct || 0), 0) / clients.length)}%` : '0%'}</div>
-          <div className="l">Average Progress</div>
-          <div className="d">Across all client pipelines</div>
+          <div className="v" id="stat-golive">{goliveCount}</div>
+          <div className="l">Go Live Pending</div>
+          <div className="d">Verified &amp; In Pre-Flight</div>
         </div>
         <div className="metric">
-          <div className="v" id="stat-total">{clients.length}</div>
-          <div className="l">Total Tenants</div>
-          <div className="d">Managed in Database</div>
+          <div className="v" id="stat-onb-done">{onbDoneCount}</div>
+          <div className="l">Onboarding Completed</div>
+          <div className="d">Ready for Pre-Flight Go Live</div>
         </div>
       </div>
 
       <div className="filters">
         <select value={filterStage} onChange={(e) => setFilterStage(e.target.value)}>
           <option value="all">All Stages</option>
-          <option value="onboarding">In Onboarding</option>
-          <option value="production">In Production</option>
+          <option value="onboarding_pending">Onboarding Pending</option>
+          <option value="onboarding_completed">Onboarding Completed</option>
+          <option value="golive_pending">Go Live Pending</option>
+          <option value="production_pending">Production Pending</option>
+          <option value="production">Production</option>
         </select>
         <input
           placeholder="Filter clients by name, owner, or identifier…"
@@ -81,67 +123,60 @@ export default function ClientsTable({ clients, onSelectClient, onOpenAddClient,
       <table className="clickable">
         <thead>
           <tr>
-            <th>Client</th>
-            <th>Stage</th>
-            <th>Claims System</th>
-            <th>Live Since / Started</th>
-            <th>Onboarding Progress</th>
-            <th>Owner</th>
-            <th>State</th>
-            <th>Actions</th>
+            <th style={{ width: '24%' }}>Client</th>
+            <th style={{ width: '15%' }}>Stage</th>
+            <th style={{ width: '14%' }}>Claims System</th>
+            <th style={{ width: '13%' }}>Live Since / Started</th>
+            <th style={{ width: '18%' }}>Onboarding Progress</th>
+            <th style={{ width: '10%' }}>Owner</th>
+            <th style={{ width: '6%', textAlign: 'center' }}>Actions</th>
           </tr>
         </thead>
         <tbody id="clients-body">
           {filteredClients.length === 0 ? (
             <tr>
-              <td colSpan="8" style={{ textAlign: 'center', padding: '32px', color: 'var(--ink-3)' }}>
+              <td colSpan="7" style={{ textAlign: 'center', padding: '36px', color: 'var(--ink-3)' }}>
                 No clients match the current filter or search criteria.
               </td>
             </tr>
           ) : (
             filteredClients.map((c) => {
-              const isProd = c.stage === 'production';
+              const isProd = (c.stage || '').toLowerCase() === 'production';
               const displayOwner = c.owner || 'Unassigned';
               const displayClaims = c.claimsSystem || c.claims_system || 'Unknown';
-              const displayState = c.state || 'Unknown';
               const displayDate = formatDate(c.liveSince || c.live_since || c.created_at);
 
               return (
                 <tr key={c.id} onClick={() => onSelectClient(c.id)} title={`Click to view ${c.name} workspace`}>
                   <td>
-                    <b>{c.name}</b>
-                    <div className="mono" style={{ fontSize: '11px', color: 'var(--ink-3)' }}>{c.code || c.id}</div>
+                    <div style={{ fontWeight: 600, color: 'var(--ink)', fontSize: '13px' }}>{c.name}</div>
+                    <div className="mono" style={{ fontSize: '11px', color: 'var(--ink-3)', marginTop: '2px' }}>{c.code || c.id}</div>
                   </td>
                   <td>
-                    <span className={`tag ${isProd ? 'ok' : 'work'}`}>
-                      {isProd ? 'Production' : 'Onboarding'}
-                    </span>
+                    {getStageBadge(c.stage)}
                   </td>
-                  <td>{displayClaims}</td>
-                  <td className="num">{displayDate}</td>
+                  <td>
+                    <span style={{ color: 'var(--ink-2)' }}>{displayClaims}</span>
+                  </td>
+                  <td className="num" style={{ color: 'var(--ink-2)' }}>{displayDate}</td>
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <div style={{ flex: 1, background: 'var(--line)', height: '6px', borderRadius: '3px', overflow: 'hidden' }}>
-                        <div style={{ width: `${c.progress_pct}%`, background: isProd ? 'var(--teal)' : 'var(--ochre)', height: '100%' }}></div>
+                      <div style={{ flex: 1, background: 'var(--line-soft)', height: '6px', borderRadius: '3px', overflow: 'hidden' }}>
+                        <div style={{ width: `${c.progress_pct}%`, background: isProd ? 'var(--teal)' : 'var(--ochre)', height: '100%', borderRadius: '3px' }}></div>
                       </div>
-                      <span className="mono" style={{ fontSize: '11px', minWidth: '32px' }}>{c.progress_pct}%</span>
+                      <span className="mono" style={{ fontSize: '11px', minWidth: '32px', color: 'var(--ink-2)', textAlign: 'right' }}>{c.progress_pct}%</span>
                     </div>
                   </td>
                   <td>
-                    <b>{displayOwner}</b>
-                  </td>
-                  <td>
-                    <span className={`tag ${displayState === 'Healthy' ? 'ok' : displayState === 'Our move' ? 'alert' : 'work'}`}>
-                      {displayState}
-                    </span>
+                    <span style={{ fontWeight: 600, color: 'var(--ink)' }}>{displayOwner}</span>
                   </td>
                   <td style={{ textAlign: 'center' }}>
                     <button 
                       className="btn tiny" 
-                      style={{ background: 'var(--surface-3)', color: 'var(--alert)' }}
+                      style={{ border: '1px solid #E2B2AD', background: 'var(--brick-bg)', color: 'var(--brick)', padding: '4px 10px', fontSize: '11px', fontWeight: 600, borderRadius: '3px' }}
                       onClick={(e) => {
                         e.stopPropagation();
-                        onDeleteClient && onDeleteClient(c.id);
+                        onDeleteClient && onDeleteClient(c);
                       }}
                       title="Revoke / Delete Client"
                     >

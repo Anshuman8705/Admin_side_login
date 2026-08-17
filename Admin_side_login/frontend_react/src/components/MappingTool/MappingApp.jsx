@@ -2,6 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import './mapping.css';
 import { MappingPreview } from './MappingPreview';
 import { postStepData } from '../../services/api';
+import ConfirmModal from '../modals/ConfirmModal';
+import FeedbackModal from '../modals/FeedbackModal';
+import Header from '../Header';
 
 const SOURCES = [
   {id:'CLP01',label:'CLP01 — Claim Submitter Identifier / Claim Number',rule:'Claim loop: CLP01',scope:'Claim loop',sample:'12345678901234567'},
@@ -67,7 +70,13 @@ function sameAsBaseline(f) {
     .every(k => String(f[k] || '') === String(b[k] || ''));
 }
 
-export default function MappingApp() {
+export default function MappingApp({ clients = [], activeClientId, currentClient, onSelectClient, onSignOut, currentUser }) {
+  const urlParams = new URLSearchParams(window.location.search);
+  const urlClientId = urlParams.get('client');
+  const targetClientId = urlClientId || activeClientId || currentClient?.id;
+  const targetClient = clients.find(c => c.id === targetClientId) || currentClient;
+  const clientName = targetClient?.name || urlClientId || 'ABC Health Plan';
+
   const [fields, setFields] = useState([]);
   const [baseline, setBaseline] = useState([]);
   const [search, setSearch] = useState('');
@@ -76,6 +85,8 @@ export default function MappingApp() {
   const [selectedField, setSelectedField] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [mappingFeedback, setMappingFeedback] = useState({ isOpen: false, kind: 'ok', title: '', content: '' });
   
   const [formulaStatus, setFormulaStatus] = useState({ status: 'idle', issue: '' });
   
@@ -149,27 +160,32 @@ export default function MappingApp() {
         return f;
       }));
       
-      const urlParams = new URLSearchParams(window.location.search);
-      const clientId = urlParams.get('client');
-      if (clientId) {
+      if (targetClientId) {
         try {
-          await postStepData(`/clients/${encodeURIComponent(clientId)}/onboarding/steps/step_8_mapping/complete`, {});
+          await postStepData(`/clients/${encodeURIComponent(targetClientId)}/onboarding/steps/step_8_mapping/complete`, {});
           localStorage.setItem('cross_tab_refresh', Date.now().toString());
         } catch (stepErr) {
           console.error("Could not complete step automatically:", stepErr);
         }
       }
 
-      showToast('Saved — converter will use these mappings');
+      showToast('Saved — Mapping complete! Returning to onboarding...');
+      
+      setTimeout(() => {
+        window.location.href = targetClientId ? `/?client=${encodeURIComponent(targetClientId)}&nav=onboard&step=8#step-8` : '/?nav=onboard';
+      }, 600);
     } catch(err) {
-      alert('Could not save mappings:\n\n' + err.message);
-    } finally {
+      setMappingFeedback({ isOpen: true, kind: 'bad', title: 'Save Failed', content: 'Could not save mappings: ' + err.message });
       setIsSaving(false);
     }
   };
 
-  const resetAll = async () => {
-    if(!window.confirm('Reset every mapping to the current converter baseline?')) return;
+  const resetAll = () => {
+    setResetConfirmOpen(true);
+  };
+
+  const executeResetAll = async () => {
+    setResetConfirmOpen(false);
     try {
       const res = await fetch('/api/mappings/reset', { method: 'POST', headers: getAuthHeaders() });
       const data = await res.json();
@@ -188,7 +204,7 @@ export default function MappingApp() {
       }));
       showToast('Reset to baseline');
     } catch(err) {
-      alert(err.message);
+      setMappingFeedback({ isOpen: true, kind: 'bad', title: 'Reset Error', content: err.message });
     }
   };
 
@@ -267,32 +283,84 @@ export default function MappingApp() {
   });
 
   return (
-    <div className="mapping-tool-wrapper">
-      <div className="top">
-        <div className="brand">MIR Relay <span>/ Mapping</span></div>
-        <div className="spacer"></div>
-        <div className="status"><b>●</b> Default mappings = current converter baseline</div>
-      </div>
-      <main className="page">
-        <div className="head">
-          <div>
-            <h1>MIR Mapping Configuration</h1>
-            <p>Review each MIR field and change its source only when the specification or business rule changes.</p>
-          </div>
-          <div className="spacer"></div>
-          <div className="actions">
-            <button className="btn" onClick={resetAll}>Reset all to baseline</button>
-            <button className="btn primary" onClick={saveMappings} disabled={isSaving}>{isSaving ? 'Saving...' : 'Save & use'}</button>
-          </div>
-        </div>
+    <>
+      <Header
+        clients={clients}
+        activeClientId={targetClientId}
+        onSelectClient={onSelectClient}
+        activeClientName={clientName}
+        onSignOut={onSignOut}
+        showClientBadge={true}
+        currentUser={currentUser}
+      />
 
-        <div className="summary">
-          <span className="pill">{fields.length} MIR fields configured</span>
-          <span className={`pill ${changedCount ? 'warn' : 'ok'}`}>
-            {changedCount ? 'Draft differs from current converter' : '✓ Same as current converter'}
-          </span>
-          <span className={`pill ${changedCount ? 'warn' : ''}`}>{changedCount} changed</span>
-        </div>
+      <div className="shell">
+        <nav className="rail">
+          <div className="grp eyebrow">Clients</div>
+          <button className="navitem" onClick={() => window.location.href = '/?nav=clients'}>
+            <span>All Clients</span>
+            {clients.length > 0 && <span className="count">{clients.length}</span>}
+          </button>
+          <button className="navitem on" onClick={() => window.location.href = targetClientId ? `/?client=${encodeURIComponent(targetClientId)}` : '/'}>
+            <span>Onboarding</span>
+          </button>
+          <button className="navitem" onClick={() => window.location.href = targetClientId ? `/?client=${encodeURIComponent(targetClientId)}&nav=docs` : '/?nav=docs'}>
+            <span>Documents</span>
+          </button>
+
+          <div className="grp eyebrow" style={{ paddingTop: '18px' }}>Pre-Production</div>
+          <button className="navitem" onClick={() => window.location.href = targetClientId ? `/?client=${encodeURIComponent(targetClientId)}&nav=sandbox` : '/?nav=sandbox'}>
+            <span>Test Environment</span>
+          </button>
+          <button className="navitem" onClick={() => window.location.href = targetClientId ? `/?client=${encodeURIComponent(targetClientId)}&nav=promote` : '/?nav=promote'}>
+            <span>Go Live</span>
+          </button>
+
+          <div className="grp eyebrow" style={{ paddingTop: '18px' }}>Governance</div>
+          <button className="navitem" onClick={() => window.location.href = '/?nav=trust'}>
+            <span>Trust Center</span>
+          </button>
+          <button className="navitem" onClick={() => window.location.href = '/?nav=access'}>
+            <span>Access</span>
+          </button>
+          <button className="navitem" onClick={() => window.location.href = '/?nav=audit'}>
+            <span>Audit Log</span>
+          </button>
+
+          <div className="grp eyebrow" style={{ paddingTop: '18px' }}>Operations</div>
+          <button className="navitem" onClick={() => window.location.href = '/?nav=ops'}>
+            <span>Operations</span>
+          </button>
+          <button className="navitem" onClick={() => window.location.href = '/?nav=offboard'}>
+            <span>Offboarding</span>
+          </button>
+        </nav>
+
+        <main className="main" style={{ padding: '22px 28px 60px' }}>
+          <div className="hdr-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', marginBottom: '8px' }}>
+            <div>
+              <h1 style={{ margin: '0 0 4px', fontSize: '22px' }}>MIR Mapping Configuration</h1>
+              <p className="sub" style={{ margin: '0 0 16px', color: 'var(--ink-2)', fontSize: '13px' }}>
+                Review each MIR field and change its source only when the specification or business rule changes.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <button className="btn" onClick={resetAll} style={{ border: '1px solid var(--line)', background: 'var(--surface)', padding: '6px 12px', fontSize: '12px' }}>
+                Reset all to baseline
+              </button>
+              <button className="btn primary" onClick={saveMappings} disabled={isSaving} style={{ padding: '6px 14px', fontSize: '12px', fontWeight: 600 }}>
+                {isSaving ? 'Saving...' : 'Save & use'}
+              </button>
+            </div>
+          </div>
+
+          <div className="summary" style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
+            <span className="pill" style={{ background: '#fff', border: '1px solid var(--line)', padding: '5px 10px', borderRadius: '999px', fontSize: '11.5px' }}>{fields.length} MIR fields configured</span>
+            <span className={`pill ${changedCount ? 'warn' : 'ok'}`} style={{ border: '1px solid var(--line)', padding: '5px 10px', borderRadius: '999px', fontSize: '11.5px', background: changedCount ? 'var(--ochre-bg)' : 'var(--teal-bg)', color: changedCount ? 'var(--ochre)' : 'var(--teal)' }}>
+              {changedCount ? 'Draft differs from current converter' : '✓ Same as current converter'}
+            </span>
+            <span className="pill" style={{ border: '1px solid var(--line)', padding: '5px 10px', borderRadius: '999px', fontSize: '11.5px', background: changedCount ? 'var(--ochre-bg)' : '#fff', color: changedCount ? 'var(--ochre)' : 'inherit' }}>{changedCount} changed</span>
+          </div>
 
         <div className="filters">
           <input className="control" placeholder="Search MIR field or meaning" value={search} onChange={e => setSearch(e.target.value)} />
@@ -317,7 +385,7 @@ export default function MappingApp() {
               ) : filtered.map(f => (
                 <tr key={f.id} onClick={() => setSelectedField(f)}>
                   <td><span className="fieldid">{f.id}</span>{!sameAsBaseline(f) && <span className="changed">changed</span>}</td>
-                  <td><span className="name" title={f.desc}>{f.name}</span><span className="descdot" title={f.desc}>ⓘ</span><div className="meta">{f.section}</div></td>
+                  <td><span className="name" title={f.desc}>{f.name}</span><span className="descdot" title={f.desc}>i</span><div className="meta">{f.section}</div></td>
                   <td><span className="mono">{f.type} · {f.length}</span></td>
                   <td><span className="mono">{f.start}–{f.end}</span></td>
                   <td><span className={`maptype ${cls(f.mapType)}`}>{f.mapType}</span></td>
@@ -329,8 +397,9 @@ export default function MappingApp() {
           </table>
         </div>
       </main>
+    </div>
 
-      <div className={`scrim ${selectedField ? 'on' : ''}`} onClick={() => setSelectedField(null)}></div>
+    <div className={`scrim ${selectedField ? 'on' : ''}`} onClick={() => setSelectedField(null)}></div>
       <aside className={`drawer ${selectedField ? 'on' : ''}`} aria-hidden={!selectedField}>
         {selectedField && (
           <>
@@ -503,6 +572,25 @@ export default function MappingApp() {
       </aside>
 
       <div className={`toast ${toastMsg ? 'on' : ''}`}>{toastMsg}</div>
-    </div>
+
+      <ConfirmModal
+        isOpen={resetConfirmOpen}
+        onClose={() => setResetConfirmOpen(false)}
+        onConfirm={executeResetAll}
+        title="Reset Mappings to Baseline"
+        message="Reset every mapping to the current converter baseline? Custom modifications will be replaced."
+        confirmText="Reset Baseline"
+        kind="danger"
+      />
+
+      <FeedbackModal
+        isOpen={mappingFeedback.isOpen}
+        onClose={() => setMappingFeedback({ ...mappingFeedback, isOpen: false })}
+        kind={mappingFeedback.kind}
+        title={mappingFeedback.title}
+        content={mappingFeedback.content}
+        checks={[]}
+      />
+    </>
   );
 }

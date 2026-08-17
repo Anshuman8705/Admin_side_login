@@ -16,7 +16,6 @@ class Client(models.Model):
     code = models.CharField(max_length=64, null=True, blank=True)
     claims_system = models.CharField(max_length=128, default='Vendor hosted')
     owner = models.CharField(max_length=128, default='Vikram J.')
-    state = models.CharField(max_length=64, default='Waiting on client')
     stage = models.CharField(max_length=32, default='onboarding')
     contact_info = models.CharField(max_length=255, null=True, blank=True)
     live_since = models.CharField(max_length=64, null=True, blank=True)
@@ -232,6 +231,18 @@ class GoLiveStepDefinition(models.Model):
 
     def __str__(self):
         return f"GoLive Step {self.step_number}: {self.title}"
+
+
+class GoLiveStepNote(models.Model):
+    client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name='golive_notes')
+    step = models.ForeignKey(GoLiveStepDefinition, on_delete=models.CASCADE, related_name='notes')
+    note_text = models.TextField()
+    author = models.CharField(max_length=128, default='Admin User')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'golive_step_notes'
+        ordering = ['-id']
 
 
 class ClientGoLiveStatus(models.Model):

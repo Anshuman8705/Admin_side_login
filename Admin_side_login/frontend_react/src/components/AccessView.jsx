@@ -113,7 +113,7 @@ export default function AccessView({ currentUser }) {
         </div>
       ) : (
         <>
-          <h2 className="sec">Administrative Staff Access</h2>
+          <h2 className="sec">Client &amp; Administrative Access</h2>
           <table style={{ width: '100%', tableLayout: 'fixed' }}>
             <thead>
               <tr>
@@ -121,10 +121,9 @@ export default function AccessView({ currentUser }) {
                 <th>Role</th>
                 <th>Access Level</th>
                 <th>Mobile</th>
-                <th>Assigned Clients</th>
+                <th>Assigned User</th>
                 <th>MFA Status</th>
                 <th>Last Login</th>
-                <th>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -135,13 +134,14 @@ export default function AccessView({ currentUser }) {
                   <td><span className="tag ok">{member.access}</span></td>
                   <td>{member.mobile || '—'}</td>
                   <td>
-                    {(member.clients || []).length > 0 
-                      ? member.clients.join(', ')
-                      : 'None'}
+                    {member.role === 'User' || member.role === 'Client' ? (
+                      (member.clients || []).length > 0 
+                        ? member.clients.join(', ')
+                        : 'None'
+                    ) : '—'}
                   </td>
                   <td><span className="tag ok">{member.mfa}</span></td>
                   <td className="num">{formatDate(member.last_login)}</td>
-                  <td><span className="tag ok">{member.status}</span></td>
                 </tr>
               ))}
             </tbody>

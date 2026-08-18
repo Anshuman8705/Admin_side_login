@@ -1,12 +1,13 @@
 import React from 'react';
 
-export default function Header({ clients, activeClientId, onSelectClient, activeClientName, onSignOut, showClientBadge = true, currentUser }) {
+export default function Header({ clients, activeClientId, onSelectClient, activeClientName, onSignOut, showClientBadge = true, currentUser, onToggleSidebar }) {
   const adminName = currentUser?.name || 'Vikram J.';
   const initials = adminName.split(' ').filter(Boolean).map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'VJ';
   const role = currentUser?.role || 'Platform Admin';
 
   return (
     <div className="topbar">
+      <button className="hamburger" onClick={onToggleSidebar} aria-label="Toggle Sidebar">☰</button>
       <div className="wordmark">OneSmarter <span>/ MIR Relay Admin</span></div>
       <div className="spacer"></div>
       {showClientBadge && (

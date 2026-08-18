@@ -4,7 +4,8 @@ from django.contrib.auth.models import User
 from api.models import (
     OnboardingPhase, OnboardingStepDefinition, EmployeeRole, Client, ClientStepStatus,
     GoLiveStepDefinition, ClientGoLiveStatus, ClientTestEnvironment, ClientDocument,
-    ClientGoLiveSFTP, ClientGoLiveSchedule, ClientGoLiveComment, LoginHistory
+    ClientGoLiveSFTP, ClientGoLiveSchedule, ClientGoLiveComment, LoginHistory,
+    OffboardingStepDefinition, ClientOffboardingStatus
 )
 
 class Command(BaseCommand):
@@ -35,11 +36,11 @@ class Command(BaseCommand):
             (6, 'step_6_transfer_method', 'Delivery method agreed', 'Configure secure transfer mechanism (SFTP, API drop).', 2, 'transfer_config', None, None),
             (7, 'step_7_835_val', 'Sample 835 received and validated', 'Validate structural integrity of sample X12 835 file.', 2, 'x12_835_validate', 'OneSmarter_Sample835_Template.edi', 'edi'),
             (8, 'step_8_mapping', 'Mapping notes written & configured', 'Open Mapping Application to configure 835 conversion.', 2, 'mapping_redirect', None, None),
-            (9, 'step_9_sftp', 'Test environment created & SFTP configured', 'Open SFTP App to provision test folders and SSH keys.', 3, 'sftp_redirect', None, None),
+            (9, 'step_9_create_user', 'Create Client User', 'Provision a standard access user account for this client.', 3, 'create_user', None, None),
             (10, 'step_10_test_review', 'Test conversions reviewed with client', 'Verify side-by-side conversion of sample 835 files.', 3, 'side_by_side_done', None, None),
             (11, 'step_11_send_ftp', 'Send test file to client FTP', 'Transmit verified test payload to client FTP server.', 3, 'send_ftp_action', None, None),
             (12, 'step_12_email_attach', 'Upload email conversation attachment', 'Attach email confirmation.', 3, 'email_upload', None, None),
-            (13, 'step_13_schedule', 'Set schedule', 'Set scheduled date and time for live production cutover.', 4, 'schedule_action', None, None),
+            (13, 'step_13_schedule', 'Set Schedule', 'Set scheduled date and time for live production cutover.', 4, 'schedule_action', None, None),
             (14, 'step_14_go_live', 'Go live checklist & controls verified', 'Confirm production cutover safeguards and monitoring.', 4, 'text_submission', None, None),
             (15, 'step_15_delivery', 'First production file delivered & monitored', 'Monitor first live 835 delivery and conclude onboarding.', 4, 'text_submission_final', None, None),
         ]
@@ -104,8 +105,26 @@ class Command(BaseCommand):
             ("northwood", "Northwood Administrators", "NORTHWOOD", "Vendor hosted", None, None, "Vikram J.", "onboarding_pending", "admin@northwood.example", 0),
         ]
 
+        self.stdout.write('Seeding offboarding step definitions...')
+        offboard_data = [
+            (1, 'step_1_termination_notice', 'Termination Notice Recorded', 'Effective date registered in database', 'upload_notice'),
+            (2, 'step_2_archive_returned', 'Archive Returned to Client', 'Exported in standard format with intact digital signatures', 'upload_archive'),
+            (3, 'step_3_key_destruction', 'Tenant Key Destruction', 'Permanent erasure of wrapped post-quantum tenant keys', 'complete_action'),
+        ]
+        for snum, skey, title, desc, atype in offboard_data:
+            s, _ = OffboardingStepDefinition.objects.get_or_create(
+                step_number=snum,
+                defaults={'step_key': skey, 'title': title, 'description': desc, 'action_type': atype}
+            )
+            s.step_key = skey
+            s.title = title
+            s.description = desc
+            s.action_type = atype
+            s.save()
+
         all_steps = list(OnboardingStepDefinition.objects.all().order_by('step_number'))
         all_gl_steps = list(GoLiveStepDefinition.objects.all().order_by('step_number'))
+        all_ob_steps = list(OffboardingStepDefinition.objects.all().order_by('step_number'))
 
         for cid, name, code, claims_sys, live_since, last_file, owner, stage, contact, pct in clients_data:
             c, _ = Client.objects.get_or_create(
@@ -150,6 +169,8 @@ class Command(BaseCommand):
                     ClientStepStatus.objects.get_or_create(client=c, step=sdef, defaults={'status': 'DONE'})
                 for gdef in all_gl_steps:
                     ClientGoLiveStatus.objects.get_or_create(client=c, step=gdef, defaults={'status': 'DONE'})
+                for odef in all_ob_steps:
+                    ClientOffboardingStatus.objects.get_or_create(client=c, step=odef, defaults={'status': 'WAITING'})
             else:
                 for sdef in all_steps:
                     if sdef.step_number == 1:
@@ -161,6 +182,8 @@ class Command(BaseCommand):
                         ClientGoLiveStatus.objects.get_or_create(client=c, step=gdef, defaults={'status': 'IN_PROGRESS'})
                     else:
                         ClientGoLiveStatus.objects.get_or_create(client=c, step=gdef, defaults={'status': 'WAITING'})
+                for odef in all_ob_steps:
+                    ClientOffboardingStatus.objects.get_or_create(client=c, step=odef, defaults={'status': 'WAITING'})
 
             # Seed Documents for client
             ClientDocument.objects.get_or_create(
@@ -170,7 +193,6 @@ class Command(BaseCommand):
                     'original_filename': f'{cid}_mutual_nda_signed.pdf',
                     'storage_path': f'data/evidence/{cid}_nda.pdf',
                     'document_type': 'Legal / Confidentiality',
-                    'direction': 'Client → OneSmarter',
                     'file_size': 48200,
                     'mime_type': 'application/pdf',
                     'status': 'Executed',
@@ -184,7 +206,6 @@ class Command(BaseCommand):
                     'original_filename': f'{cid}_baa_executed.pdf',
                     'storage_path': f'data/evidence/{cid}_baa.pdf',
                     'document_type': 'HIPAA Compliance',
-                    'direction': 'Client → OneSmarter',
                     'file_size': 51200,
                     'mime_type': 'application/pdf',
                     'status': 'Executed',
@@ -198,7 +219,6 @@ class Command(BaseCommand):
                     'original_filename': f'{cid}_sample_835.edi',
                     'storage_path': f'data/evidence/{cid}_sample835.edi',
                     'document_type': 'Test Data / Mapping',
-                    'direction': 'Client → OneSmarter',
                     'file_size': 3240,
                     'mime_type': 'text/plain',
                     'status': 'Validated',

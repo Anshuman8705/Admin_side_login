@@ -185,7 +185,6 @@ class ClientDocument(models.Model):
     original_filename = models.CharField(max_length=255)
     storage_path = models.CharField(max_length=512)
     document_type = models.CharField(max_length=128, default='General')  # Legal / Confidentiality, HIPAA Compliance, Test Data, Security, Go-Live
-    direction = models.CharField(max_length=64, default='Client → OneSmarter')
     file_size = models.IntegerField(default=0)
     mime_type = models.CharField(max_length=128, default='application/pdf')
     status = models.CharField(max_length=32, default='Executed')  # Executed, Validated, Uploaded, Archived
@@ -335,3 +334,48 @@ class AuditLog(models.Model):
 
     def __str__(self):
         return f"[{self.module}] {self.action} by {self.performed_by} at {self.timestamp}"
+class OffboardingStepDefinition(models.Model):
+    step_number = models.IntegerField(unique=True)
+    step_key = models.CharField(max_length=50, unique=True)
+    title = models.CharField(max_length=200)
+    description = models.TextField()
+    action_type = models.CharField(max_length=50, blank=True, null=True)
+
+    class Meta:
+        db_table = 'api_offboarding_step_def'
+        ordering = ['step_number']
+
+class OffboardingStepNote(models.Model):
+    client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name='offboard_notes')
+    step_definition = models.ForeignKey(OffboardingStepDefinition, on_delete=models.CASCADE)
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.CharField(max_length=150)
+
+    class Meta:
+        db_table = 'api_offboarding_note'
+        ordering = ['-created_at']
+
+class ClientOffboardingStatus(models.Model):
+    client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name='offboard_statuses')
+    step = models.ForeignKey(OffboardingStepDefinition, on_delete=models.CASCADE)
+    status = models.CharField(max_length=20, default='Pending')
+    completed_at = models.DateTimeField(null=True, blank=True)
+    completed_by = models.CharField(max_length=150, null=True, blank=True)
+    step_key = models.CharField(max_length=50, blank=True, null=True)
+
+    class Meta:
+        db_table = 'api_client_offboard_status'
+        unique_together = ('client', 'step')
+
+class OffboardingStepUpload(models.Model):
+    client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name='offboard_uploads')
+    step = models.ForeignKey(OffboardingStepDefinition, on_delete=models.CASCADE)
+    file_path = models.CharField(max_length=500)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    uploaded_by = models.CharField(max_length=150)
+    file_name = models.CharField(max_length=255, blank=True, null=True)
+
+    class Meta:
+        db_table = 'api_offboarding_upload'
+        ordering = ['-uploaded_at']

@@ -11,7 +11,8 @@ from .views import (
     ClientTestEnvironmentView, ClientTestRunView,
     GoLiveStateView, GoLiveStep1UploadView, GoLiveStep1DownloadView,
     GoLiveStep2UploadView, GoLiveStep2DownloadView, GoLiveStep3SFTPView,
-    GoLiveStep4ScheduleView, GoLiveStep5CommentView, GoLiveStep6CompleteView, GoLiveRedoStepView
+    GoLiveStep4ScheduleView, GoLiveStep5CommentView, GoLiveStep6CompleteView, GoLiveRedoStepView,
+    OffboardingStateView, OffboardingStepUploadView, OffboardingStepDownloadView, OffboardingStepNoteView, OffboardingCompleteView, OffboardingRedoView
 )
 
 router = DefaultRouter()
@@ -86,4 +87,12 @@ urlpatterns = [
     path('clients/<str:client_id>/steps/<str:step_key>/notes', StepNotesView.as_view(), name='step-notes'),
     path('employee-roles', EmployeeRolesView.as_view(), name='employee-roles'),
     path('employee-roles/', EmployeeRolesView.as_view(), name='employee-roles-slash'),
+    
+    # Offboarding Workflow API
+    path('clients/<str:client_id>/offboard/state', OffboardingStateView.as_view(), name='offboard-state'),
+    path('clients/<str:client_id>/offboard/steps/<int:step_number>/upload', OffboardingStepUploadView.as_view(), name='offboard-step-upload'),
+    path('clients/<str:client_id>/offboard/steps/<int:step_number>/download', OffboardingStepDownloadView.as_view(), name='offboard-step-download'),
+    path('clients/<str:client_id>/offboard/steps/<int:step_number>/notes', OffboardingStepNoteView.as_view(), name='offboard-step-notes'),
+    path('clients/<str:client_id>/offboard/steps/<int:step_number>/complete', OffboardingCompleteView.as_view(), name='offboard-step-complete'),
+    path('clients/<str:client_id>/offboard/steps/<int:step_number>/redo', OffboardingRedoView.as_view(), name='offboard-step-redo'),
 ]

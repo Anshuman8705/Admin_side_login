@@ -5,30 +5,11 @@ import { createClient, fetchAccessInfo } from '../../services/api';
 export default function AddClientModal({ isOpen, onClose, onClientCreated, existingClients = [] }) {
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
-  const [claims, setClaims] = useState('Vendor hosted');
-  const [email, setEmail] = useState('');
-  const [owner, setOwner] = useState('Vikram J.');
-  const [owners, setOwners] = useState([]);
   const [errorMsg, setErrorMsg] = useState('');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    async function loadOwners() {
-      try {
-        const data = await fetchAccessInfo();
-        if (data && data.staff) {
-          setOwners(data.staff);
-          if (data.staff.length > 0) {
-            setOwner(data.staff[0].person);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to load owners:', err);
-      }
-    }
-    if (isOpen) {
-      loadOwners();
-    }
+    // Modal open logic if needed
   }, [isOpen]);
 
   const handleSubmit = async (e) => {
@@ -52,31 +33,19 @@ export default function AddClientModal({ isOpen, onClose, onClientCreated, exist
       return;
     }
 
-    if (email.trim()) {
-      const emailPattern = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/;
-      if (!emailPattern.test(email.trim())) {
-        setErrorMsg('Invalid email address format.');
-        return;
-      }
-    }
+    // email validation removed
 
     setLoading(true);
     try {
       const response = await createClient({
         name: trimmedName,
-        code: trimmedCode || undefined,
-        claimsSystem: claims,
-        contactInfo: email.trim() || undefined,
-        owner: owner
+        code: trimmedCode || undefined
       });
       
       await onClientCreated(response.client);
       setName('');
       setCode('');
-      setEmail('');
       setErrorMsg('');
-      setClaims('Vendor hosted');
-      setOwner('Vikram J.');
       onClose();
     } catch (err) {
       setErrorMsg(err.message || 'Failed to create client.');
@@ -128,40 +97,6 @@ export default function AddClientModal({ isOpen, onClose, onClientCreated, exist
             value={code}
             onChange={(e) => { setCode(e.target.value); setErrorMsg(''); }}
           />
-        </div>
-        <div className="field">
-          <label>Claims System</label>
-          <select value={claims} onChange={(e) => setClaims(e.target.value)}>
-            <option value="Vendor hosted">Vendor hosted</option>
-            <option value="In-house">In-house</option>
-            <option value="Legacy AS/400">Legacy AS/400</option>
-            <option value="Other">Other Custom System</option>
-          </select>
-        </div>
-        <div className="field">
-          <label>Primary Contact Email</label>
-          <input
-            type="email"
-            placeholder="contact@apex.example"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-        </div>
-        <div className="field">
-          <label>Assigned Account Owner</label>
-          <select value={owner} onChange={(e) => setOwner(e.target.value)}>
-            {owners.length > 0 ? (
-              owners.map((o, idx) => (
-                <option key={idx} value={o.person}>{o.person}</option>
-              ))
-            ) : (
-              <>
-                <option value="Vikram J.">Vikram J.</option>
-                <option value="Rushi">Rushi</option>
-                <option value="Prajval">Prajval</option>
-              </>
-            )}
-          </select>
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '18px' }}>
           <button type="button" className="btn" onClick={handleCloseModal}>Cancel</button>

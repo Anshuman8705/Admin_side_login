@@ -1,5 +1,8 @@
 import React, { useState, useRef } from 'react';
-import { uploadStepFile, validateStaged835, postStepData, downloadTemplateFile, fetchStepUploadFile } from '../services/api';
+import { 
+  uploadStepFile, validateStaged835, postStepData, downloadTemplateFile, fetchStepUploadFile, createUser,
+  uploadOffboardingStepFile, completeOffboardingStep
+} from '../services/api';
 import FeedbackModal from './modals/FeedbackModal';
 import FileViewerModal from './modals/FileViewerModal';
 
@@ -45,15 +48,19 @@ function formatToMMDDYYYY(val) {
   return `${mm}-${dd}-${yyyy}`;
 }
 
-export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes, onOpenRedo, onOpenAddRole }) {
+export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes, onOpenRedo, onOpenAddRole, isOffboarding }) {
   const [feedback, setFeedback] = useState({ isOpen: false, kind: 'ok', title: '', content: '', checks: [] });
   const [viewerFile, setViewerFile] = useState(null);
   const [isViewerOpen, setIsViewerOpen] = useState(false);
   const [viewerLoading, setViewerLoading] = useState(false);
   const [validating835, setValidating835] = useState(false);
+  const [userName, setUserName] = useState('');
+  const [userEmail, setUserEmail] = useState('');
+  const [userMobile, setUserMobile] = useState('');
+  const [userPassword, setUserPassword] = useState('');
 
   const [s4Name, setS4Name] = useState('');
-  const [s4Role, setS4Role] = useState(roles[0]?.role_name || 'Named Contact');
+  const [s4Role, setS4Role] = useState(roles?.[0]?.role_name || 'Named Contact');
   const [s4Email, setS4Email] = useState('');
   const [s4CountryCode, setS4CountryCode] = useState('+1');
   const [s4Phone, setS4Phone] = useState('');
@@ -140,7 +147,12 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
     const file = e.target.files[0];
     if (!file) return;
     try {
-      const res = await uploadStepFile(clientId, step.key, file);
+      let res;
+      if (isOffboarding) {
+        res = await uploadOffboardingStepFile(clientId, step.step_number, file);
+      } else {
+        res = await uploadStepFile(clientId, step.key, file);
+      }
       setFeedback({
         isOpen: true,
         kind: 'ok',
@@ -324,6 +336,19 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
     }
   };
 
+  const handleCompleteGeneric = async () => {
+    try {
+      if (isOffboarding) {
+        await completeOffboardingStep(clientId, step.step_number);
+      } else {
+        await postStepData(`/clients/${encodeURIComponent(clientId)}/onboarding/steps/${encodeURIComponent(step.key)}/complete`, {});
+      }
+      onRefresh();
+    } catch (err) {
+      setFeedback({ isOpen: true, kind: 'bad', title: 'Action Failed', content: err.message, checks: [] });
+    }
+  };
+
   const launchRedirect = (url, pendingKey) => {
     sessionStorage.setItem('pending_return_step', pendingKey);
     window.open(url, '_blank');
@@ -385,6 +410,27 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
 
         {(step.inProgress || step.done) && (
           <>
+            {(step.actionType === 'upload_notice' || step.actionType === 'upload_archive' || step.actionType === 'upload_template' || step.actionType === 'email_upload') && (
+              <div style={{ marginTop: '12px' }}>
+                <label className={`btn tiny ${step.done ? 'success' : 'primary'}`} style={{ cursor: 'pointer' }}>
+                  {step.done ? '⬆ Upload Replacement' : '⬆ Upload Document'}
+                  <input type="file" hidden onChange={handleStandardFileUpload} />
+                </label>
+              </div>
+            )}
+
+            {step.actionType === 'complete_action' && (
+              <div style={{ marginTop: '12px' }}>
+                <button 
+                  type="button" 
+                  className={`btn tiny ${step.done ? 'success' : 'primary'}`} 
+                  onClick={handleCompleteGeneric}
+                  style={{ fontWeight: 600 }}
+                >
+                  {step.done ? '✓ Completed' : '✓ Mark Completed'}
+                </button>
+              </div>
+            )}
             {step.actionType === 'contact_manager' && (
               <div className="step-custom-box" style={{ padding: '10px 14px', background: '#F8FAFC', borderRadius: '4px', border: '1px solid var(--line-soft)', marginTop: '10px' }}>
                 {step.extra?.contacts && step.extra.contacts.length > 0 && (
@@ -424,7 +470,7 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
                         value={s4Role}
                         onChange={(e) => setS4Role(e.target.value)}
                       >
-                        {roles.map((r) => <option key={r.id} value={r.role_name}>{r.role_name}</option>)}
+                        {(roles || []).map((r) => <option key={r.id} value={r.role_name}>{r.role_name}</option>)}
                       </select>
                       <button type="button" className="btn tiny icon-btn" onClick={onOpenAddRole} title="Add New Role" style={{ minWidth: '26px', height: '28px' }}>+</button>
                     </div>
@@ -710,22 +756,56 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
               </div>
             )}
 
-            {step.actionType === 'sftp_redirect' && (
-              <div className="step-custom-box" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                <div><b>SFTP Sandbox Screen:</b> Setup test environment folders and SSH keys.</div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button className="btn tiny primary" onClick={() => launchRedirect(`/sftp?client=${encodeURIComponent(clientId)}`, 'step_9_sftp')}>
-                    Open SFTP Screen ↗
-                  </button>
-                  <button className="btn tiny success" onClick={async () => {
-                    try {
-                      await postStepData(`/clients/${encodeURIComponent(clientId)}/onboarding/steps/step_9_sftp/complete`, {});
-                      onRefresh();
-                    } catch (err) { 
-                      setFeedback({ isOpen: true, kind: 'bad', title: 'Completion Error', content: err.message, checks: [] }); 
-                    }
-                  }}>✓ Complete Step 9</button>
-                </div>
+            {step.actionType === 'create_user' && (
+              <div className="step-custom-box">
+                <form onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!userName.trim() || !userEmail.trim() || !userPassword.trim()) {
+                    setFeedback({ isOpen: true, kind: 'bad', title: 'Validation Error', content: 'Name, Email, and Password are required.', checks: [] });
+                    return;
+                  }
+                  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                  if (!emailRegex.test(userEmail)) {
+                    setFeedback({ isOpen: true, kind: 'bad', title: 'Validation Error', content: 'Please enter a valid email address.', checks: [] });
+                    return;
+                  }
+                  try {
+                    await createUser({
+                      name: userName,
+                      mobile: userMobile,
+                      email: userEmail,
+                      password: userPassword,
+                      role: 'User',
+                      clients: [clientId]
+                    });
+                    await postStepData(`/clients/${encodeURIComponent(clientId)}/onboarding/steps/step_9_create_user/complete`, {});
+                    onRefresh();
+                  } catch (err) {
+                    setFeedback({ isOpen: true, kind: 'bad', title: 'Creation Error', content: err.message, checks: [] });
+                  }
+                }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.5fr 1fr', gap: '8px', marginBottom: '10px' }}>
+                    <div className="field" style={{ margin: 0 }}>
+                      <label style={{ fontSize: '11px', marginBottom: '2px' }}>Name *</label>
+                      <input value={userName} onChange={e => setUserName(e.target.value)} placeholder="Jane Doe" required style={{ padding: '4px 8px', fontSize: '12px', minHeight: '28px' }} />
+                    </div>
+                    <div className="field" style={{ margin: 0 }}>
+                      <label style={{ fontSize: '11px', marginBottom: '2px' }}>Mobile</label>
+                      <input value={userMobile} onChange={e => setUserMobile(e.target.value)} placeholder="+1 555-0100" style={{ padding: '4px 8px', fontSize: '12px', minHeight: '28px' }} />
+                    </div>
+                    <div className="field" style={{ margin: 0 }}>
+                      <label style={{ fontSize: '11px', marginBottom: '2px' }}>Email *</label>
+                      <input type="email" value={userEmail} onChange={e => setUserEmail(e.target.value)} placeholder="jane@example.com" required style={{ padding: '4px 8px', fontSize: '12px', minHeight: '28px' }} />
+                    </div>
+                    <div className="field" style={{ margin: 0 }}>
+                      <label style={{ fontSize: '11px', marginBottom: '2px' }}>Password *</label>
+                      <input type="password" value={userPassword} onChange={e => setUserPassword(e.target.value)} placeholder="Temp Pass" required style={{ padding: '4px 8px', fontSize: '12px', minHeight: '28px' }} />
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button type="submit" className="btn tiny primary">Create User &amp; Complete Step</button>
+                  </div>
+                </form>
               </div>
             )}
 

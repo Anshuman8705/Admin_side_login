@@ -81,6 +81,9 @@ export default function MappingApp({ clients = [], activeClientId, currentClient
   const [baseline, setBaseline] = useState([]);
   const [search, setSearch] = useState('');
   const [sectionFilter, setSectionFilter] = useState('');
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [selectedRecord, setSelectedRecord] = useState(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [typeFilter, setTypeFilter] = useState('');
   const [selectedField, setSelectedField] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -291,47 +294,52 @@ export default function MappingApp({ clients = [], activeClientId, currentClient
         activeClientName={clientName}
         onSignOut={onSignOut}
         showClientBadge={true}
+        showClientBadge={true}
         currentUser={currentUser}
+        onToggleSidebar={() => setIsSidebarOpen(prev => !prev)}
       />
 
       <div className="shell">
-        <nav className="rail">
+        <nav className={`rail ${isSidebarOpen ? 'open' : ''}`}>
           <div className="grp eyebrow">Clients</div>
-          <button className="navitem" onClick={() => window.location.href = '/?nav=clients'}>
+          <button className="navitem" onClick={() => { setIsSidebarOpen(false); window.location.href = '/?nav=clients'; }}>
             <span>All Clients</span>
             {clients.length > 0 && <span className="count">{clients.length}</span>}
           </button>
-          <button className="navitem on" onClick={() => window.location.href = targetClientId ? `/?client=${encodeURIComponent(targetClientId)}` : '/'}>
+          <button className="navitem on" onClick={() => { setIsSidebarOpen(false); window.location.href = targetClientId ? `/?client=${encodeURIComponent(targetClientId)}` : '/'; }}>
             <span>Onboarding</span>
           </button>
-          <button className="navitem" onClick={() => window.location.href = targetClientId ? `/?client=${encodeURIComponent(targetClientId)}&nav=docs` : '/?nav=docs'}>
+          <button className="navitem" onClick={() => { setIsSidebarOpen(false); window.location.href = targetClientId ? `/?client=${encodeURIComponent(targetClientId)}&nav=docs` : '/?nav=docs'; }}>
             <span>Documents</span>
+          </button>
+          <button className="navitem" onClick={() => { setIsSidebarOpen(false); window.location.href = targetClientId ? `/?client=${encodeURIComponent(targetClientId)}&nav=files` : '/?nav=files'; }}>
+            <span>Files</span>
           </button>
 
           <div className="grp eyebrow" style={{ paddingTop: '18px' }}>Pre-Production</div>
-          <button className="navitem" onClick={() => window.location.href = targetClientId ? `/?client=${encodeURIComponent(targetClientId)}&nav=sandbox` : '/?nav=sandbox'}>
+          <button className="navitem" onClick={() => { setIsSidebarOpen(false); window.location.href = targetClientId ? `/?client=${encodeURIComponent(targetClientId)}&nav=sandbox` : '/?nav=sandbox'; }}>
             <span>Test Environment</span>
           </button>
-          <button className="navitem" onClick={() => window.location.href = targetClientId ? `/?client=${encodeURIComponent(targetClientId)}&nav=promote` : '/?nav=promote'}>
+          <button className="navitem" onClick={() => { setIsSidebarOpen(false); window.location.href = targetClientId ? `/?client=${encodeURIComponent(targetClientId)}&nav=promote` : '/?nav=promote'; }}>
             <span>Go Live</span>
           </button>
 
           <div className="grp eyebrow" style={{ paddingTop: '18px' }}>Governance</div>
-          <button className="navitem" onClick={() => window.location.href = '/?nav=trust'}>
+          <button className="navitem" onClick={() => { setIsSidebarOpen(false); window.location.href = '/?nav=trust'; }}>
             <span>Trust Center</span>
           </button>
-          <button className="navitem" onClick={() => window.location.href = '/?nav=access'}>
+          <button className="navitem" onClick={() => { setIsSidebarOpen(false); window.location.href = '/?nav=access'; }}>
             <span>Access</span>
           </button>
-          <button className="navitem" onClick={() => window.location.href = '/?nav=audit'}>
+          <button className="navitem" onClick={() => { setIsSidebarOpen(false); window.location.href = '/?nav=audit'; }}>
             <span>Audit Log</span>
           </button>
 
           <div className="grp eyebrow" style={{ paddingTop: '18px' }}>Operations</div>
-          <button className="navitem" onClick={() => window.location.href = '/?nav=ops'}>
+          <button className="navitem" onClick={() => { setIsSidebarOpen(false); window.location.href = '/?nav=ops'; }}>
             <span>Operations</span>
           </button>
-          <button className="navitem" onClick={() => window.location.href = '/?nav=offboard'}>
+          <button className="navitem" onClick={() => { setIsSidebarOpen(false); window.location.href = '/?nav=offboard'; }}>
             <span>Offboarding</span>
           </button>
         </nav>
@@ -399,7 +407,8 @@ export default function MappingApp({ clients = [], activeClientId, currentClient
       </main>
     </div>
 
-    <div className={`scrim ${selectedField ? 'on' : ''}`} onClick={() => setSelectedField(null)}></div>
+    <div className="mapping-tool-wrapper">
+      <div className={`scrim ${selectedField ? 'on' : ''}`} onClick={() => setSelectedField(null)}></div>
       <aside className={`drawer ${selectedField ? 'on' : ''}`} aria-hidden={!selectedField}>
         {selectedField && (
           <>
@@ -572,6 +581,7 @@ export default function MappingApp({ clients = [], activeClientId, currentClient
       </aside>
 
       <div className={`toast ${toastMsg ? 'on' : ''}`}>{toastMsg}</div>
+    </div>
 
       <ConfirmModal
         isOpen={resetConfirmOpen}

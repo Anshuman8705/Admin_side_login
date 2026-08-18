@@ -273,6 +273,15 @@ export default function GoLiveView({ clients = [], activeClientId, onSelectClien
   const activeStepTitle = inProgressStep ? inProgressStep.title : (doneCount === 6 ? 'All 6 Steps Complete' : '—');
   const isStep6Done = steps.find(s => s.step_number === 6)?.done;
 
+  const stageRaw = (currentClient?.stage || '').toLowerCase().replace(/[\s-]/g, '_');
+  let stageDisplay = 'Pre-Production';
+  if (stageRaw === 'production') stageDisplay = 'Production';
+  else if (stageRaw === 'production_pending') stageDisplay = 'Production Pending';
+
+  let readinessDisplay = 'In Cutover';
+  if (stageRaw === 'production') readinessDisplay = 'Healthy';
+  else if (stageRaw === 'production_pending') readinessDisplay = 'Pending Cutover';
+
   return (
     <section className="view on" id="v-promote">
       <div className="hdr-row">
@@ -309,10 +318,10 @@ export default function GoLiveView({ clients = [], activeClientId, onSelectClien
         <div className="metric">
           <div className="v">{goliveState?.progress_pct || 0}%</div>
           <div className="l">Completion</div>
-          <div className="d">Stage: {isStep6Done ? 'Production' : 'Pre-Production'}</div>
+          <div className="d">Stage: {stageDisplay}</div>
         </div>
         <div className="metric">
-          <div className="v">{isStep6Done ? 'Healthy' : 'In Cutover'}</div>
+          <div className="v">{readinessDisplay}</div>
           <div className="l">Readiness State</div>
           <div className="d">Live operations status</div>
         </div>

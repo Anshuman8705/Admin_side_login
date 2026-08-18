@@ -123,12 +123,10 @@ export default function ClientsTable({ clients, onSelectClient, onOpenAddClient,
       <table className="clickable">
         <thead>
           <tr>
-            <th style={{ width: '24%' }}>Client</th>
-            <th style={{ width: '15%' }}>Stage</th>
-            <th style={{ width: '14%' }}>Claims System</th>
-            <th style={{ width: '13%' }}>Live Since / Started</th>
-            <th style={{ width: '18%' }}>Onboarding Progress</th>
-            <th style={{ width: '10%' }}>Owner</th>
+            <th style={{ width: '35%' }}>Client</th>
+            <th style={{ width: '20%' }}>Stage</th>
+            <th style={{ width: '15%' }}>Live Since / Started</th>
+            <th style={{ width: '24%' }}>Onboarding Progress</th>
             <th style={{ width: '6%', textAlign: 'center' }}>Actions</th>
           </tr>
         </thead>
@@ -142,8 +140,6 @@ export default function ClientsTable({ clients, onSelectClient, onOpenAddClient,
           ) : (
             filteredClients.map((c) => {
               const isProd = (c.stage || '').toLowerCase() === 'production';
-              const displayOwner = c.owner || 'Unassigned';
-              const displayClaims = c.claimsSystem || c.claims_system || 'Unknown';
               const displayDate = formatDate(c.liveSince || c.live_since || c.created_at);
 
               return (
@@ -155,9 +151,6 @@ export default function ClientsTable({ clients, onSelectClient, onOpenAddClient,
                   <td>
                     {getStageBadge(c.stage)}
                   </td>
-                  <td>
-                    <span style={{ color: 'var(--ink-2)' }}>{displayClaims}</span>
-                  </td>
                   <td className="num" style={{ color: 'var(--ink-2)' }}>{displayDate}</td>
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -166,9 +159,6 @@ export default function ClientsTable({ clients, onSelectClient, onOpenAddClient,
                       </div>
                       <span className="mono" style={{ fontSize: '11px', minWidth: '32px', color: 'var(--ink-2)', textAlign: 'right' }}>{c.progress_pct}%</span>
                     </div>
-                  </td>
-                  <td>
-                    <span style={{ fontWeight: 600, color: 'var(--ink)' }}>{displayOwner}</span>
                   </td>
                   <td style={{ textAlign: 'center' }}>
                     <button 

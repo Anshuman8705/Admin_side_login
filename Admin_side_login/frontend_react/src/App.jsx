@@ -3,7 +3,9 @@ import Header from './components/Header';
 import ClientsTable from './components/ClientsTable';
 import OnboardingLadder from './components/OnboardingLadder';
 import DocumentsView from './components/DocumentsView';
+import FilesView from './components/FilesView';
 import GoLiveView from './components/GoLiveView';
+import OffboardingLadder from './components/OffboardingLadder';
 import AccessView from './components/AccessView';
 import AddClientModal from './components/modals/AddClientModal';
 import NotesModal from './components/modals/NotesModal';
@@ -100,6 +102,27 @@ export default function App() {
   const [isRevokeOpen, setIsRevokeOpen] = useState(false);
   const [revokeTarget, setRevokeTarget] = useState(null);
   const [revokeLoading, setRevokeLoading] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  // Sync activeNav and activeClientId to URL so browser refresh keeps the exact same view
+  useEffect(() => {
+    try {
+      const url = new URL(window.location.href);
+      if (activeNav) {
+        url.searchParams.set('nav', activeNav);
+      } else {
+        url.searchParams.delete('nav');
+      }
+      if (activeClientId) {
+        url.searchParams.set('client', activeClientId);
+      } else {
+        url.searchParams.delete('client');
+      }
+      window.history.replaceState({}, '', url);
+    } catch (e) {
+      console.error('Failed to update URL parameters', e);
+    }
+  }, [activeNav, activeClientId]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -128,6 +151,12 @@ export default function App() {
       window.removeEventListener('focus', onFocus);
     };
   }, [isAuthenticated, activeClientId]);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadAuditLogs(auditClientFilter, auditModuleFilter);
+    }
+  }, [auditClientFilter, auditModuleFilter, isAuthenticated]);
 
   const loadClients = async () => {
     try {
@@ -297,44 +326,48 @@ export default function App() {
         onSignOut={handleSignOut}
         showClientBadge={['onboard', 'docs', 'sandbox', 'promote'].includes(activeNav)}
         currentUser={currentUser}
+        onToggleSidebar={() => setIsSidebarOpen(prev => !prev)}
       />
 
       <div className="shell">
         {/* Left Navigation Sidebar matching POC exactly */}
-        <nav className="rail">
+        <nav className={`rail ${isSidebarOpen ? 'open' : ''}`}>
           <div className="grp eyebrow">Clients</div>
-          <button className={`navitem ${activeNav === 'clients' ? 'on' : ''}`} onClick={() => setActiveNav('clients')}>
+          <button className={`navitem ${activeNav === 'clients' ? 'on' : ''}`} onClick={() => { setActiveNav('clients'); setIsSidebarOpen(false); }}>
             <span>All Clients</span>
             <span className="count">{clients.length}</span>
           </button>
-          <button className={`navitem ${activeNav === 'onboard' ? 'on' : ''}`} onClick={() => setActiveNav('onboard')}>
+          <button className={`navitem ${activeNav === 'onboard' ? 'on' : ''}`} onClick={() => { setActiveNav('onboard'); setIsSidebarOpen(false); }}>
             <span>Onboarding</span>
           </button>
-          <button className={`navitem ${activeNav === 'docs' ? 'on' : ''}`} onClick={() => setActiveNav('docs')}>
+          <button className={`navitem ${activeNav === 'docs' ? 'on' : ''}`} onClick={() => { setActiveNav('docs'); setIsSidebarOpen(false); }}>
             <span>Documents</span>
+          </button>
+          <button className={`navitem ${activeNav === 'files' ? 'on' : ''}`} onClick={() => { setActiveNav('files'); setIsSidebarOpen(false); }}>
+            <span>Files</span>
           </button>
 
           <div className="grp eyebrow" style={{ paddingTop: '18px' }}>Pre-Production</div>
-          <button className={`navitem ${activeNav === 'promote' ? 'on' : ''}`} onClick={() => setActiveNav('promote')}>
+          <button className={`navitem ${activeNav === 'promote' ? 'on' : ''}`} onClick={() => { setActiveNav('promote'); setIsSidebarOpen(false); }}>
             <span>Go Live</span>
           </button>
 
           <div className="grp eyebrow" style={{ paddingTop: '18px' }}>Governance</div>
-          <button className={`navitem ${activeNav === 'trust' ? 'on' : ''}`} onClick={() => setActiveNav('trust')}>
+          <button className={`navitem ${activeNav === 'trust' ? 'on' : ''}`} onClick={() => { setActiveNav('trust'); setIsSidebarOpen(false); }}>
             <span>Trust Center</span>
           </button>
-          <button className={`navitem ${activeNav === 'access' ? 'on' : ''}`} onClick={() => setActiveNav('access')}>
+          <button className={`navitem ${activeNav === 'access' ? 'on' : ''}`} onClick={() => { setActiveNav('access'); setIsSidebarOpen(false); }}>
             <span>Access</span>
           </button>
-          <button className={`navitem ${activeNav === 'audit' ? 'on' : ''}`} onClick={() => setActiveNav('audit')}>
+          <button className={`navitem ${activeNav === 'audit' ? 'on' : ''}`} onClick={() => { setActiveNav('audit'); setIsSidebarOpen(false); }}>
             <span>Audit Log</span>
           </button>
 
           <div className="grp eyebrow" style={{ paddingTop: '18px' }}>Operations</div>
-          <button className={`navitem ${activeNav === 'ops' ? 'on' : ''}`} onClick={() => setActiveNav('ops')}>
+          <button className={`navitem ${activeNav === 'ops' ? 'on' : ''}`} onClick={() => { setActiveNav('ops'); setIsSidebarOpen(false); }}>
             <span>Operations</span>
           </button>
-          <button className={`navitem ${activeNav === 'offboard' ? 'on' : ''}`} onClick={() => setActiveNav('offboard')}>
+          <button className={`navitem ${activeNav === 'offboard' ? 'on' : ''}`} onClick={() => { setActiveNav('offboard'); setIsSidebarOpen(false); }}>
             <span>Offboarding</span>
           </button>
         </nav>
@@ -368,6 +401,14 @@ export default function App() {
 
           {activeNav === 'docs' && (
             <DocumentsView
+              clients={clients}
+              activeClientId={activeClientId}
+              onSelectClient={handleSelectClient}
+            />
+          )}
+
+          {activeNav === 'files' && (
+            <FilesView
               clients={clients}
               activeClientId={activeClientId}
               onSelectClient={handleSelectClient}
@@ -595,16 +636,14 @@ export default function App() {
           )}
 
           {activeNav === 'offboard' && (
-            <section className="view on" id="v-offboard">
-              <div className="eyebrow">Lifecycle Termination</div>
-              <h1>Offboarding Procedures</h1>
-              <p className="sub">Cryptographic key destruction and certified data return upon client contract conclusion.</p>
-              <div className="ladder">
-                <div className="rung"><div className="mark">1</div><div className="txt"><h3>Termination Notice Recorded</h3><div className="meta">Effective date registered in database</div></div></div>
-                <div className="rung"><div className="mark">2</div><div className="txt"><h3>Archive Returned to Client</h3><div className="meta">Exported in standard format with intact digital signatures</div></div></div>
-                <div className="rung"><div className="mark">3</div><div className="txt"><h3>Tenant Key Destruction</h3><div className="meta">Permanent erasure of wrapped post-quantum tenant keys</div></div></div>
-              </div>
-            </section>
+            <OffboardingLadder
+              client={clientState?.client || clients.find(c => c.id === activeClientId)}
+              clients={clients}
+              onSelectClient={handleSelectClient}
+              onRefresh={() => loadClients()}
+              onOpenNotes={handleOpenNotes}
+              onOpenRedo={handleOpenRedo}
+            />
           )}
         </main>
       </div>

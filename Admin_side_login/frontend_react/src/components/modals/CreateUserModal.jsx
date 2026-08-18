@@ -13,7 +13,7 @@ export default function CreateUserModal({ isOpen, onClose, onSave, clients }) {
   const [loading, setLoading] = useState(false);
 
   const clientOptions = clients.map(c => ({ value: c.id, label: c.name }));
-  const selectedOptions = clientOptions.filter(o => selectedClientIds.includes(o.value));
+  const selectedOption = clientOptions.find(o => selectedClientIds.includes(o.value)) || null;
 
   const handleCloseModal = () => {
     setErrorMsg('');
@@ -21,7 +21,7 @@ export default function CreateUserModal({ isOpen, onClose, onSave, clients }) {
     setEmail('');
     setMobile('');
     setPassword('');
-    setRole('User');
+    setRole('Client');
     setSelectedClientIds([]);
     onClose();
   };
@@ -63,7 +63,7 @@ export default function CreateUserModal({ isOpen, onClose, onSave, clients }) {
   return (
     <CenteredModal isOpen={isOpen} onClose={handleCloseModal}>
       <div className="modal-t">Create New User</div>
-      <p className="modal-b">Create a new administrative user with assigned roles and client access.</p>
+      <p className="modal-b">Create a new client or administrative user with assigned roles and client access.</p>
       
       {errorMsg && (
         <div style={{
@@ -126,34 +126,35 @@ export default function CreateUserModal({ isOpen, onClose, onSave, clients }) {
             <option value="Admin">Admin (Full Access)</option>
           </select>
         </div>
-        <div className="field">
-          <label>Assign Clients</label>
-          <Select 
-            isMulti 
-            options={clientOptions} 
-            value={selectedOptions} 
-            onChange={opts => setSelectedClientIds(opts ? opts.map(o => o.value) : [])} 
-            placeholder="Select one or multiple clients..."
-            styles={{
-              control: (base) => ({ 
-                ...base, 
-                minHeight: '38px', 
-                borderRadius: '4px', 
-                borderColor: 'var(--line)',
-                fontFamily: 'var(--body)',
-                fontSize: '14px'
-              }),
-              menu: (base) => ({ 
-                ...base, 
-                zIndex: 9999,
-                fontFamily: 'var(--body)',
-                fontSize: '14px'
-              })
-            }}
-          />
-        </div>
+        {role === 'User' && (
+          <div className="field">
+            <label>Assigned User</label>
+            <Select 
+              options={clientOptions} 
+              value={selectedOption} 
+              onChange={opt => setSelectedClientIds(opt ? [opt.value] : [])} 
+              placeholder="Select..."
+              styles={{
+                control: (base) => ({ 
+                  ...base, 
+                  minHeight: '38px', 
+                  borderRadius: '4px', 
+                  borderColor: 'var(--line)',
+                  fontFamily: 'var(--body)',
+                  fontSize: '14px'
+                }),
+                menu: (base) => ({ 
+                  ...base, 
+                  zIndex: 9999,
+                  fontFamily: 'var(--body)',
+                  fontSize: '14px'
+                })
+              }}
+            />
+          </div>
+        )}
 
-        <div className="modal-actions" style={{ marginTop: '24px' }}>
+        <div className="modal-actions" style={{ marginTop: '24px', display: 'flex', gap: '16px', justifyContent: 'flex-end' }}>
           <button type="button" className="btn" onClick={handleCloseModal}>Cancel</button>
           <button type="submit" className="btn primary" disabled={loading}>
             {loading ? 'Creating...' : 'Create User'}

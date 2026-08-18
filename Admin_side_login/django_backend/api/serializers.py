@@ -113,7 +113,7 @@ class ClientDocumentSerializer(serializers.ModelSerializer):
         model = ClientDocument
         fields = [
             'id', 'client', 'client_name', 'document_name', 'original_filename',
-            'storage_path', 'document_type', 'direction', 'file_size', 'mime_type',
+            'storage_path', 'document_type', 'file_size', 'mime_type',
             'status', 'uploaded_by', 'uploaded_at', 'updated_at', 'validation_details'
         ]
 
@@ -188,3 +188,26 @@ class AuditLogSerializer(serializers.ModelSerializer):
             'id', 'client', 'client_name', 'module', 'action', 'details',
             'entity_id', 'ip_address', 'performed_by', 'timestamp'
         ]
+# --- 6. Offboarding Serializers ---
+from .models import OffboardingStepDefinition, OffboardingStepNote, ClientOffboardingStatus, OffboardingStepUpload
+
+class OffboardingStepDefinitionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OffboardingStepDefinition
+        fields = ['id', 'step_number', 'step_key', 'title', 'description', 'action_type']
+
+class OffboardingStepNoteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OffboardingStepNote
+        fields = ['id', 'client', 'step_definition', 'content', 'created_at', 'created_by']
+
+class ClientOffboardingStatusSerializer(serializers.ModelSerializer):
+    step_key = serializers.CharField(source='step.step_key', read_only=True)
+    class Meta:
+        model = ClientOffboardingStatus
+        fields = ['id', 'client', 'step', 'status', 'completed_at', 'completed_by', 'step_key']
+
+class OffboardingStepUploadSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OffboardingStepUpload
+        fields = ['id', 'client', 'step', 'file_path', 'file_name', 'uploaded_at', 'uploaded_by']

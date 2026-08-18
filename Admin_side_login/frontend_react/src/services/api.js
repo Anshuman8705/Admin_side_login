@@ -424,3 +424,108 @@ export async function createUser(userData) {
   if (!res.ok) throw new Error(data.error || 'Failed to create user');
   return data;
 }
+
+// --- 5. Offboarding Service ---
+export async function fetchOffboardingState(clientId) {
+  const res = await fetch(`${BASE_URL}/clients/${encodeURIComponent(clientId)}/offboard/state`, {
+    headers: getAuthHeaders()
+  });
+  if (!res.ok) throw new Error('Failed to fetch offboarding state');
+  const data = await res.json();
+  
+  const mappedSteps = data.steps.map(s => {
+    const isDone = s.status === 'DONE';
+    const isLocked = s.status === 'WAITING';
+    const inProgress = s.status === 'IN_PROGRESS';
+    return {
+      id: s.step_number,
+      key: s.step_key,
+      title: s.title,
+      desc: s.description,
+      actionType: s.actionType,
+      status: s.status,
+      inProgress: inProgress || (!isDone && !isLocked),
+      done: isDone,
+      locked: isLocked && !inProgress,
+      latestUpload: s.uploads && s.uploads.length > 0 ? s.uploads[0] : null,
+      latestNote: s.notes && s.notes.length > 0 ? s.notes[0] : null,
+      extra: s.extra || {}
+    };
+  });
+  
+  let foundInProgress = false;
+  mappedSteps.forEach((s) => {
+    if (s.done) {
+      s.inProgress = false;
+      s.locked = false;
+    } else if (!foundInProgress) {
+      s.inProgress = true;
+      s.locked = false;
+      foundInProgress = true;
+    } else {
+      s.inProgress = false;
+      s.locked = true;
+    }
+  });
+
+  return mappedSteps;
+}
+
+export async function uploadOffboardingStepFile(clientId, stepNumber, file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`${BASE_URL}/clients/${encodeURIComponent(clientId)}/offboard/steps/${stepNumber}/upload`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: formData
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Upload failed');
+  return data;
+}
+
+export async function downloadOffboardingStepFile(clientId, stepNumber, filename) {
+  const res = await fetch(`${BASE_URL}/clients/${encodeURIComponent(clientId)}/offboard/steps/${stepNumber}/download`, {
+    headers: getAuthHeaders()
+  });
+  if (!res.ok) throw new Error('Download failed');
+  const rawBlob = await res.blob();
+  const blob = new Blob([rawBlob], { type: 'application/octet-stream' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = res.headers.get('X-OneSmarter-Filename') || filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+export async function submitOffboardingStepNotes(clientId, stepNumber, content) {
+  const res = await fetch(`${BASE_URL}/clients/${encodeURIComponent(clientId)}/offboard/steps/${stepNumber}/notes`, {
+    method: 'POST',
+    headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ content })
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to save notes');
+  return data;
+}
+
+export async function completeOffboardingStep(clientId, stepNumber) {
+  const res = await fetch(`${BASE_URL}/clients/${encodeURIComponent(clientId)}/offboard/steps/${stepNumber}/complete`, {
+    method: 'POST',
+    headers: getAuthHeaders()
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to complete step');
+  return data;
+}
+
+export async function redoOffboardingStep(clientId, stepNumber) {
+  const res = await fetch(`${BASE_URL}/clients/${encodeURIComponent(clientId)}/offboard/steps/${stepNumber}/redo`, {
+    method: 'POST',
+    headers: getAuthHeaders()
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to redo step');
+  return data;
+}

@@ -3,16 +3,16 @@ import ClientSelectDropdown from './ClientSelectDropdown';
 import { fetchClientDocuments, uploadClientDocument, downloadDocumentFile, fetchDocumentFile } from '../services/api';
 import FileViewerModal from './modals/FileViewerModal';
 
-export default function DocumentsView({ clients = [], activeClientId, onSelectClient }) {
+export default function FilesView({ clients = [], activeClientId, onSelectClient }) {
   const [selectedClientId, setSelectedClientId] = useState(activeClientId || (clients[0]?.id || ''));
-  const [documents, setDocuments] = useState([]);
+  const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [downloadingId, setDownloadingId] = useState(null);
   const [viewingId, setViewingId] = useState(null);
   const [viewerFile, setViewerFile] = useState(null);
   const [isViewerOpen, setIsViewerOpen] = useState(false);
-  const [viewerDocTitle, setViewerDocTitle] = useState('');
+  const [viewerFileTitle, setViewerFileTitle] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const fileInputRef = useRef(null);
@@ -27,20 +27,21 @@ export default function DocumentsView({ clients = [], activeClientId, onSelectCl
 
   useEffect(() => {
     if (selectedClientId) {
-      loadDocuments(selectedClientId);
+      loadFiles(selectedClientId);
     }
   }, [selectedClientId]);
 
-  async function loadDocuments(clientId) {
+  async function loadFiles(clientId) {
     if (!clientId) return;
     setLoading(true);
     setErrorMessage('');
     try {
+      // Reusing documents API temporarily for UI mocking
       const docs = await fetchClientDocuments(clientId);
-      setDocuments(docs);
+      setFiles(docs);
     } catch (err) {
-      setErrorMessage(err.message || 'Failed to load documents');
-      setDocuments([]);
+      setErrorMessage(err.message || 'Failed to load files');
+      setFiles([]);
     } finally {
       setLoading(false);
     }
@@ -54,46 +55,46 @@ export default function DocumentsView({ clients = [], activeClientId, onSelectCl
     }
   }
 
-  async function handleDownload(doc) {
-    setDownloadingId(doc.id);
+  async function handleDownload(fileObj) {
+    setDownloadingId(fileObj.id);
     setErrorMessage('');
     try {
-      await downloadDocumentFile(doc.id, doc.original_filename);
+      await downloadDocumentFile(fileObj.id, fileObj.original_filename);
     } catch (err) {
-      setErrorMessage(`Failed to download ${doc.document_name}: ${err.message}`);
+      setErrorMessage(`Failed to download ${fileObj.document_name}: ${err.message}`);
     } finally {
       setDownloadingId(null);
     }
   }
 
-  async function handleView(doc) {
-    setViewingId(doc.id);
+  async function handleView(fileObj) {
+    setViewingId(fileObj.id);
     setErrorMessage('');
     try {
-      const data = await fetchDocumentFile(doc.id, doc.original_filename);
+      const data = await fetchDocumentFile(fileObj.id, fileObj.original_filename);
       setViewerFile(data);
-      setViewerDocTitle(doc.document_name);
+      setViewerFileTitle(fileObj.document_name);
       setIsViewerOpen(true);
     } catch (err) {
-      setErrorMessage(`Failed to preview ${doc.document_name}: ${err.message}`);
+      setErrorMessage(`Failed to preview ${fileObj.document_name}: ${err.message}`);
     } finally {
       setViewingId(null);
     }
   }
 
   async function handleFileUpload(e) {
-    const file = e.target.files?.[0];
-    if (!file || !selectedClientId) return;
+    const fileObj = e.target.files?.[0];
+    if (!fileObj || !selectedClientId) return;
 
     setUploading(true);
     setErrorMessage('');
     setSuccessMessage('');
     try {
-      await uploadClientDocument(selectedClientId, file, file.name.replace(/\.[^/.]+$/, ''), 'General Document');
-      setSuccessMessage(`Document '${file.name}' uploaded and registered successfully.`);
-      await loadDocuments(selectedClientId);
+      await uploadClientDocument(selectedClientId, fileObj, fileObj.name.replace(/\.[^/.]+$/, ''), 'General File');
+      setSuccessMessage(`File '${fileObj.name}' uploaded successfully.`);
+      await loadFiles(selectedClientId);
     } catch (err) {
-      setErrorMessage(err.message || 'Document upload failed');
+      setErrorMessage(err.message || 'File upload failed');
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -109,10 +110,10 @@ export default function DocumentsView({ clients = [], activeClientId, onSelectCl
   }
 
   return (
-    <section className="view on" id="v-docs">
+    <section className="view on" id="v-files">
       <div className="hdr-row">
         <div>
-          <div className="eyebrow">Client Documents</div>
+          <div className="eyebrow">Client Repository</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '2px 0 4px' }}>
             <ClientSelectDropdown
               clients={clients}
@@ -124,9 +125,9 @@ export default function DocumentsView({ clients = [], activeClientId, onSelectCl
                 }
               }}
             />
-            <h1 style={{ margin: 0 }}>Documents &amp; Agreements</h1>
+            <h1 style={{ margin: 0 }}>Client Files</h1>
           </div>
-          <p className="sub">Executed legal agreements, compliance certificates, and evidence files associated with <b>{currentClient?.name}</b>.</p>
+          <p className="sub">General files, data samples, and miscellaneous attachments associated with <b>{currentClient?.name}</b>.</p>
         </div>
       </div>
 
@@ -144,21 +145,21 @@ export default function DocumentsView({ clients = [], activeClientId, onSelectCl
 
       {loading ? (
         <div style={{ padding: '40px', textAlign: 'center', color: 'var(--ink-3)' }}>
-          Loading documents for {currentClient?.name}...
+          Loading files for {currentClient?.name}...
         </div>
-      ) : documents.length === 0 ? (
+      ) : files.length === 0 ? (
         <div className="stub" style={{ textAlign: 'center', padding: '36px' }}>
-          <b>No documents available for this client.</b>
+          <b>No files available for this client.</b>
           <p style={{ margin: '6px 0 0', color: 'var(--ink-2)' }}>
-            Upload legal agreements, compliance forms, or test data for {currentClient?.name} using the onboarding workflow.
+            Upload any required files or test data for {currentClient?.name} using the workflow.
           </p>
         </div>
       ) : (
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
-              <th style={{ width: '20%' }}>Document</th>
-              <th style={{ width: '24%' }}>Template / Filename</th>
+              <th style={{ width: '20%' }}>File Name</th>
+              <th style={{ width: '24%' }}>Original Filename</th>
               <th style={{ width: '16%' }}>Category</th>
               <th style={{ width: '8%' }}>Format</th>
               <th style={{ width: '8%' }}>Size</th>
@@ -168,27 +169,27 @@ export default function DocumentsView({ clients = [], activeClientId, onSelectCl
             </tr>
           </thead>
           <tbody>
-            {documents.map((doc) => {
-              const ext = (doc.original_filename?.split('.').pop() || 'PDF').toUpperCase();
+            {files.map((fileObj) => {
+              const ext = (fileObj.original_filename?.split('.').pop() || 'PDF').toUpperCase();
               return (
-                <tr key={doc.id}>
+                <tr key={fileObj.id}>
                   <td>
-                    <b>{doc.document_name}</b>
+                    <b>{fileObj.document_name}</b>
                   </td>
                   <td>
                     <code style={{ fontSize: '11.5px', wordBreak: 'break-all', display: 'inline-block' }}>
-                      {doc.original_filename}
+                      {fileObj.original_filename}
                     </code>
                   </td>
-                  <td>{doc.document_type || 'Legal / Confidentiality'}</td>
+                  <td>{fileObj.document_type || 'General'}</td>
                   <td>
                     <span className="mono" style={{ fontSize: '11px' }}>{ext}</span>
                   </td>
-                  <td className="num">{formatBytes(doc.file_size)}</td>
-                  <td>{doc.uploaded_by || 'Admin User'}</td>
+                  <td className="num">{formatBytes(fileObj.file_size)}</td>
+                  <td>{fileObj.uploaded_by || 'Admin User'}</td>
                   <td>
-                    <span className={`tag ${doc.status === 'Executed' || doc.status === 'Validated' || doc.status === 'Uploaded' ? 'ok' : 'work'}`}>
-                      {doc.status}
+                    <span className={`tag ${fileObj.status === 'Executed' || fileObj.status === 'Validated' || fileObj.status === 'Uploaded' ? 'ok' : 'work'}`}>
+                      {fileObj.status}
                     </span>
                   </td>
                   <td style={{ textAlign: 'right', verticalAlign: 'middle' }}>
@@ -196,23 +197,23 @@ export default function DocumentsView({ clients = [], activeClientId, onSelectCl
                       <button
                         type="button"
                         className="btn tiny icon-btn"
-                        onClick={() => handleView(doc)}
-                        title={`View ${doc.document_name}`}
-                        aria-label={`View ${doc.document_name}`}
-                        disabled={viewingId === doc.id}
+                        onClick={() => handleView(fileObj)}
+                        title={`View ${fileObj.document_name}`}
+                        aria-label={`View ${fileObj.document_name}`}
+                        disabled={viewingId === fileObj.id}
                         style={{ background: 'var(--blue-bg)', borderColor: 'var(--blue)', color: 'var(--blue)' }}
                       >
-                        {viewingId === doc.id ? '…' : '👁'}
+                        {viewingId === fileObj.id ? '…' : '👁'}
                       </button>
                       <button
                         type="button"
                         className="btn tiny primary icon-btn"
-                        disabled={downloadingId === doc.id}
-                        onClick={() => handleDownload(doc)}
-                        title={`Download ${doc.document_name}`}
-                        aria-label={`Download ${doc.document_name}`}
+                        disabled={downloadingId === fileObj.id}
+                        onClick={() => handleDownload(fileObj)}
+                        title={`Download ${fileObj.document_name}`}
+                        aria-label={`Download ${fileObj.document_name}`}
                       >
-                        {downloadingId === doc.id ? '…' : '⬇'}
+                        {downloadingId === fileObj.id ? '…' : '⬇'}
                       </button>
                     </div>
                   </td>
@@ -227,7 +228,7 @@ export default function DocumentsView({ clients = [], activeClientId, onSelectCl
         isOpen={isViewerOpen}
         onClose={() => setIsViewerOpen(false)}
         fileData={viewerFile}
-        stepTitle={viewerDocTitle}
+        stepTitle={viewerFileTitle}
         stepNum=""
       />
     </section>

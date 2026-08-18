@@ -20,7 +20,7 @@ from .models import (
     StepUpload, StepNote, GoLiveStepNote, EmployeeRole, ClientContact, ClaimSystemVerification,
     ClientTransferConfig, StepSchedule, StepTextSubmission, AuditLog,
     ClientDocument, ClientTestEnvironment, GoLiveStepDefinition, ClientGoLiveStatus,
-    ClientGoLiveSFTP, ClientGoLiveSchedule, ClientGoLiveComment, LoginHistory, AdminMFA
+    ClientGoLiveSFTP, ClientGoLiveSchedule, ClientGoLiveComment, LoginHistory, AdminMFA, UserProfile
 )
 import pyotp
 import qrcode
@@ -216,6 +216,46 @@ class AuthLogoutView(APIView):
         return Response({'ok': True, 'message': 'Logged out successfully'})
 
 
+class CreateUserView(APIView):
+    def post(self, request):
+        from django.contrib.auth.models import User
+        from django.db import transaction
+        
+        name = request.data.get('name', '').strip()
+        email = request.data.get('email', '').strip()
+        mobile = request.data.get('mobile', '').strip()
+        password = request.data.get('password', '')
+        role = request.data.get('role', 'User')
+        client_ids = request.data.get('clients', [])
+
+        if not email or not name or not password:
+            return Response({'error': 'Name, email, and password are required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if User.objects.filter(username=email).exists():
+            return Response({'error': 'User with this email already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            with transaction.atomic():
+                user = User.objects.create_user(
+                    username=email,
+                    email=email,
+                    password=password,
+                    first_name=name.split(' ')[0],
+                    last_name=' '.join(name.split(' ')[1:]) if ' ' in name else '',
+                    is_staff=True,
+                    is_superuser=(role == 'Admin')
+                )
+                
+                profile = UserProfile.objects.create(user=user, mobile=mobile)
+                if client_ids:
+                    profile.clients.set(Client.objects.filter(id__in=client_ids))
+            
+            log_audit(module='ACCESS', action='USER_CREATED', details=f"Created {role} user '{email}'.", request=request)
+            return Response({'ok': True, 'message': f"User {email} created successfully."})
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class AccessInfoView(APIView):
     def get(self, request):
         from django.contrib.auth.models import User
@@ -265,13 +305,21 @@ class AccessInfoView(APIView):
             role = "Admin" if u.is_superuser else "User"
             access_level = "Full Access" if u.is_superuser else "Standard Access"
             
+            mobile = ""
+            client_names = []
+            if hasattr(u, 'profile'):
+                mobile = u.profile.mobile or ""
+                client_names = [c.name for c in u.profile.clients.all()]
+
             staff_list.append({
                 'person': full_name,
                 'role': role,
                 'access': access_level,
                 'mfa': mfa_type,
                 'last_login': u_last_login,
-                'status': 'Active' if u.is_active else 'Inactive'
+                'status': 'Active' if u.is_active else 'Inactive',
+                'mobile': mobile,
+                'clients': client_names
             })
 
         # Fallback if no staff returned
@@ -361,6 +409,13 @@ def update_client_stage(client):
     done_onboarding = ClientStepStatus.objects.filter(client=client, status='DONE').count() if total_onboarding > 0 else 0
     client.progress_pct = int(round((done_onboarding / total_onboarding) * 100)) if total_onboarding > 0 else 0
 
+    onboarding_is_complete = (total_onboarding > 0 and done_onboarding >= total_onboarding)
+
+    if not onboarding_is_complete:
+        client.stage = 'onboarding_pending'
+        client.save()
+        return
+
     # 1. Check Go-Live Step 6 (Production Finalized)
     st6 = ClientGoLiveStatus.objects.filter(client=client, step__step_number=6, status='DONE').first()
     if st6:
@@ -395,12 +450,8 @@ def update_client_stage(client):
         client.save()
         return
 
-    # 4. Check Onboarding Completion
-    if total_onboarding > 0 and done_onboarding >= total_onboarding:
-        client.stage = 'onboarding_completed'
-    else:
-        client.stage = 'onboarding_pending'
-
+    # 4. If Onboarding is complete but no Go-Live steps are done
+    client.stage = 'onboarding_completed'
     client.save()
 
 
@@ -1507,6 +1558,10 @@ class CompleteStepDirectView(APIView):
 
 class SendFTPView(APIView):
     def post(self, request, client_id):
+        import dotenv
+        from django.core.mail.backends.smtp import EmailBackend
+        from django.core.mail import EmailMessage
+
         client = Client.objects.filter(id=client_id).first()
         step_def = find_step_definition('step_11_send_ftp')
         if not client or not step_def:
@@ -1516,55 +1571,72 @@ class SendFTPView(APIView):
         if not ok_seq:
             return seq_err
 
-        # 1. Create a local folder
-        ftp_dir = os.path.join(settings.BASE_DIR, 'ftp_test', client_id)
-        os.makedirs(ftp_dir, exist_ok=True)
-        
-        # 2. Write a text file into it
-        test_file_path = os.path.join(ftp_dir, 'test_payload.txt')
-        test_content = f"Test payload for {client.name} (ID: {client_id}) generated at {datetime.now(timezone.utc).isoformat()}"
-        with open(test_file_path, 'w') as f:
-            f.write(test_content)
-            
-        # 3. Check if it was received correctly (verify existence and content)
-        if os.path.exists(test_file_path):
-            with open(test_file_path, 'r') as f:
-                content = f.read()
-                # Send notification email to the client if they have an email registered (plain text only, no document attachment)
-                client_email = client.contact_info
-                if client_email:
-                    try:
-                        email = EmailMessage(
-                            subject=f"File Sent to SFTP - {client.name}",
-                            body=f"Hello {client.name},\n\nWe have sent the file to your SFTP.\n\nBest regards,\nOneSmarter Onboarding Team",
-                            from_email=settings.DEFAULT_FROM_EMAIL if hasattr(settings, 'DEFAULT_FROM_EMAIL') else 'noreply@onesmarter.com',
-                            to=[client_email],
-                        )
-                        email.send(fail_silently=True)
-                    except Exception as e:
-                        # Log but don't fail the step if SMTP is not configured
-                        print(f"Warning: Failed to send email to {client_email}: {e}")
+        sender_email = request.data.get('sender_email', '').strip()
+        sender_password = request.data.get('sender_password', '').strip()
 
-                # 4. If yes, mark the step as done
-                st_obj, _ = ClientStepStatus.objects.get_or_create(client=client, step=step_def)
-                st_obj.status = 'DONE'
-                st_obj.completed_at = datetime.now(timezone.utc)
-                st_obj.completed_by = 'Admin User'
-                st_obj.save()
+        if not sender_email or not sender_password:
+            return Response({'error': 'Sender email and password are required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-                advance_next_step(client, step_def.step_number)
-                return Response({
-                    'ok': True,
-                    'step': step_def.step_number,
-                    'title': 'SFTP File Transmission Verified',
-                    'message': f"Hello {client.name}, we have sent the file to your SFTP.",
-                    'checks': [
-                        {'ok': True, 'label': 'Payload Transmission', 'detail': f"Verified test payload generated and transferred to {client.name} SFTP repository."},
-                        {'ok': True, 'label': 'Compliance Progression', 'detail': 'Transfer integrity confirmed. Step 11 marked as complete and Step 12 unlocked.'}
-                    ]
-                })
-            
-        return Response({'ok': False, 'error': 'Failed to verify the FTP test file.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        # 1. Update the .env file with the new credentials
+        env_path = os.path.join(settings.BASE_DIR, '.env')
+        dotenv.set_key(env_path, 'EMAIL_HOST_USER', sender_email)
+        dotenv.set_key(env_path, 'EMAIL_HOST_PASSWORD', sender_password)
+
+        # Update running os environ just in case
+        os.environ['EMAIL_HOST_USER'] = sender_email
+        os.environ['EMAIL_HOST_PASSWORD'] = sender_password
+
+        # 2. Send the email directly using the dynamically provided credentials
+        client_email = client.contact_info
+        if client_email:
+            try:
+                # Use standard configuration or fallback to gmail default
+                host = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
+                port = int(os.environ.get('EMAIL_PORT', 587))
+                use_tls = str(os.environ.get('EMAIL_USE_TLS', 'true')).lower() == 'true'
+
+                custom_backend = EmailBackend(
+                    host=host,
+                    port=port,
+                    username=sender_email,
+                    password=sender_password,
+                    use_tls=use_tls,
+                    fail_silently=False
+                )
+
+                email = EmailMessage(
+                    subject=f"Onboarding Notification - {client.name}",
+                    body=f"Hello {client.name},\n\nWe have completed the required configurations. This is a notification that your setup is proceeding successfully.\n\nBest regards,\nOneSmarter Onboarding Team",
+                    from_email=sender_email,
+                    to=[client_email],
+                    connection=custom_backend
+                )
+                email.send()
+            except Exception as e:
+                return Response({'error': f"Failed to send email: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        else:
+            return Response({'error': 'Client does not have a contact email configured.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 3. Mark the step as done
+        st_obj, _ = ClientStepStatus.objects.get_or_create(client=client, step=step_def)
+        st_obj.status = 'DONE'
+        st_obj.completed_at = datetime.now(timezone.utc)
+        st_obj.completed_by = 'Admin User'
+        st_obj.save()
+
+        advance_next_step(client, step_def.step_number)
+        log_audit(client=client, module='ONBOARDING', action='STEP_COMPLETED', details=f"Completed Step {step_def.step_number} ({step_def.title}).", request=request)
+
+        return Response({
+            'ok': True, 
+            'step': step_def.step_number,
+            'title': 'Email Sent Successfully',
+            'message': f"Sent email to {client_email} via {sender_email}.",
+            'checks': [
+                { 'ok': True, 'label': 'Configuration Updated', 'detail': f'Global sender email configured as {sender_email}' },
+                { 'ok': True, 'label': 'Notification Sent', 'detail': 'Email message successfully sent to the client. Step 11 marked as complete.' }
+            ]
+        })
 
 
 class SaveStep4ContactView(APIView):

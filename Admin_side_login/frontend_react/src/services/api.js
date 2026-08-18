@@ -413,3 +413,14 @@ export async function fetchAccessInfo() {
   if (!res.ok) throw new Error('Failed to fetch access matrix');
   return res.json();
 }
+
+export async function createUser(userData) {
+  const res = await fetch(`${BASE_URL}/users/create/`, {
+    method: 'POST',
+    headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(userData)
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to create user');
+  return data;
+}

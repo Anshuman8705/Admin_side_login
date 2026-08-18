@@ -1,14 +1,28 @@
 import React, { useState, useEffect } from 'react';
-import { fetchAccessInfo } from '../services/api';
+import { fetchAccessInfo, fetchClients, createUser } from '../services/api';
+import CreateUserModal from './modals/CreateUserModal';
 
 export default function AccessView({ currentUser }) {
   const [accessData, setAccessData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [clients, setClients] = useState([]);
 
   useEffect(() => {
     loadAccess();
+    loadClients();
   }, []);
+
+  async function loadClients() {
+    try {
+      const data = await fetchClients();
+      const list = data.results || data || [];
+      setClients(list);
+    } catch (err) {
+      console.error("Failed to fetch clients", err);
+    }
+  }
 
   async function loadAccess() {
     setLoading(true);
@@ -22,6 +36,14 @@ export default function AccessView({ currentUser }) {
       setLoading(false);
     }
   }
+
+  const handleCreateUser = async (userData) => {
+    // The try/catch is removed because CreateUserModal handles the error display.
+    // If createUser throws, the modal catches it and shows it in the red banner.
+    await createUser(userData);
+    setShowCreateModal(false);
+    loadAccess(); // Reload the access matrix
+  };
 
   function formatDate(isoStr) {
     if (!isoStr) return '—';
@@ -41,12 +63,15 @@ export default function AccessView({ currentUser }) {
 
   return (
     <section className="view on" id="v-access">
-      <div className="hdr-row">
+      <div className="hdr-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <div className="eyebrow">Security Controls</div>
           <h1 style={{ margin: 0 }}>Access Matrix</h1>
           <p className="sub">Administrative staff role-based access and break-glass logging.</p>
         </div>
+        <button className="btn primary" onClick={() => setShowCreateModal(true)}>
+          + Create User
+        </button>
       </div>
 
       <div className="metrics">
@@ -95,6 +120,8 @@ export default function AccessView({ currentUser }) {
                 <th>Person</th>
                 <th>Role</th>
                 <th>Access Level</th>
+                <th>Mobile</th>
+                <th>Assigned Clients</th>
                 <th>MFA Status</th>
                 <th>Last Login</th>
                 <th>Status</th>
@@ -106,6 +133,12 @@ export default function AccessView({ currentUser }) {
                   <td><b>{member.person}</b></td>
                   <td>{member.role}</td>
                   <td><span className="tag ok">{member.access}</span></td>
+                  <td>{member.mobile || '—'}</td>
+                  <td>
+                    {(member.clients || []).length > 0 
+                      ? member.clients.join(', ')
+                      : 'None'}
+                  </td>
                   <td><span className="tag ok">{member.mfa}</span></td>
                   <td className="num">{formatDate(member.last_login)}</td>
                   <td><span className="tag ok">{member.status}</span></td>
@@ -115,6 +148,13 @@ export default function AccessView({ currentUser }) {
           </table>
         </>
       )}
+
+      <CreateUserModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onSave={handleCreateUser}
+        clients={clients}
+      />
     </section>
   );
 }

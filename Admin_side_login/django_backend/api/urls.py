@@ -6,7 +6,7 @@ from .views import (
     SaveStep4ContactView, SaveStep5ClaimVerifyView, SaveStep6TransferConfigView,
     SaveStep13ScheduleView, SubmitStepTextView, StepNotesView, EmployeeRolesView,
     DownloadTemplateView, ResetDemoView, CleanupEvidenceView, AuditLogListView,
-    AuthLoginView, AuthLogoutView, AccessInfoView, AuthRegisterView,
+    AuthLoginView, AuthLogoutView, AccessInfoView, AuthRegisterView, CreateUserView,
     ClientDocumentsListView, ClientDocumentUploadView, DocumentDownloadView, DocumentDeleteView,
     ClientTestEnvironmentView, ClientTestRunView,
     GoLiveStateView, GoLiveStep1UploadView, GoLiveStep1DownloadView,
@@ -29,6 +29,8 @@ urlpatterns = [
     path('auth/logout/', AuthLogoutView.as_view(), name='auth-logout-slash'),
     path('access/info', AccessInfoView.as_view(), name='access-info'),
     path('access/info/', AccessInfoView.as_view(), name='access-info-slash'),
+    path('users/create', CreateUserView.as_view(), name='users-create'),
+    path('users/create/', CreateUserView.as_view(), name='users-create-slash'),
     
     # Documents Section API
     path('clients/<str:client_id>/documents', ClientDocumentsListView.as_view(), name='client-docs-list'),

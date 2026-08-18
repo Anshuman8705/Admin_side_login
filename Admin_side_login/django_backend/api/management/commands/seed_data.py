@@ -30,7 +30,7 @@ class Command(BaseCommand):
             (1, 'step_1_nda', 'Mutual NDA signed', 'Upload signed NDA template to establish confidentiality agreement.', 1, 'upload_template', 'OneSmarter_MutualNDA_Template.pdf', 'pdf'),
             (2, 'step_2_baa', 'Business associate agreement executed', 'Execute HIPAA compliant Business Associate Agreement.', 1, 'upload_template', 'OneSmarter_BAA_Template.pdf', 'pdf'),
             (3, 'step_3_security', 'Security review returned to client', 'Upload security audit review document.', 1, 'upload_template', 'OneSmarter_SecurityReview_Template.pdf', 'pdf'),
-            (4, 'step_4_contacts', 'Name change and Contact Records', 'Designate client contact personnel and records.', 1, 'contact_manager', None, None),
+            (4, 'step_4_contacts', 'Contact Records', 'Designate client contact personnel and records.', 1, 'contact_manager', None, None),
             (5, 'step_5_claim_sys', 'Claims system identified and verified', 'Identify client claims vendor software system.', 2, 'claim_verify', None, None),
             (6, 'step_6_transfer_method', 'Delivery method agreed', 'Configure secure transfer mechanism (SFTP, API drop).', 2, 'transfer_config', None, None),
             (7, 'step_7_835_val', 'Sample 835 received and validated', 'Validate structural integrity of sample X12 835 file.', 2, 'x12_835_validate', 'OneSmarter_Sample835_Template.edi', 'edi'),

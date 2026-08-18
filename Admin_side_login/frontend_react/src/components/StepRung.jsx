@@ -124,6 +124,10 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
   })();
 
   const [s10Notes, setS10Notes] = useState(step.extra?.submission?.submission_text || '');
+  const [s11Email, setS11Email] = useState('');
+  const [s11Password, setS11Password] = useState('');
+  const [s11Sending, setS11Sending] = useState(false);
+
 
   const datePickerRef = useRef(null);
   const [s13Date, setS13Date] = useState(() => formatToMMDDYYYY(step.extra?.schedule?.scheduled_date) || '');
@@ -413,7 +417,7 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
                 )}
 
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'flex-start' }}>
-                  <div style={{ width: '140px' }}>
+                  <div style={{ flex: '1 1 140px', minWidth: '140px' }}>
                     <div style={{ display: 'flex', gap: '3px' }}>
                       <select 
                         style={{ width: '100%', padding: '6px 8px', border: '1px solid var(--line)', borderRadius: '3px', fontSize: '12px', background: 'var(--surface)', color: 'var(--ink)' }}
@@ -426,7 +430,7 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
                     </div>
                   </div>
 
-                  <div style={{ width: '145px' }}>
+                  <div style={{ flex: '1 1 145px', minWidth: '145px' }}>
                     <input 
                       style={{ 
                         width: '100%', 
@@ -453,7 +457,7 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
                     )}
                   </div>
 
-                  <div style={{ width: '175px' }}>
+                  <div style={{ flex: '1 1 175px', minWidth: '175px' }}>
                     <input 
                       style={{ 
                         width: '100%', 
@@ -480,7 +484,7 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
                     )}
                   </div>
 
-                  <div style={{ width: '185px' }}>
+                  <div style={{ flex: '1 1 185px', minWidth: '185px' }}>
                     <div style={{ display: 'flex', gap: '4px' }}>
                       <select 
                         style={{ padding: '6px 4px', border: '1px solid var(--line)', borderRadius: '3px', fontSize: '11.5px', background: 'var(--surface)', color: 'var(--ink)' }}
@@ -519,7 +523,7 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
                     )}
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'flex-start' }}>
+                  <div style={{ flex: '1 1 auto', display: 'flex', alignItems: 'flex-start' }}>
                     <button 
                       type="button" 
                       className="btn tiny primary" 
@@ -755,26 +759,73 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
             )}
 
             {step.actionType === 'send_ftp_action' && (
-              <div className="step-custom-box" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>Transmit verified test payload to client FTP server.</div>
-                <button className="btn tiny primary" onClick={async () => {
-                  try {
-                    const res = await postStepData(`/clients/${encodeURIComponent(clientId)}/steps/step_11_send_ftp/send`, {});
-                    setFeedback({
-                      isOpen: true,
-                      kind: 'ok',
-                      title: res.title || 'SFTP File Transmission Verified',
-                      content: res.message || `Hello ${clientId}, we have sent the file to your SFTP.`,
-                      checks: res.checks || [
-                        { ok: true, label: 'Payload Transmission', detail: `Verified test payload generated and transferred to ${clientId} SFTP repository.` },
-                        { ok: true, label: 'Compliance Progression', detail: 'Transfer integrity confirmed. Step 11 marked as complete and Step 12 unlocked.' }
-                      ]
-                    });
-                    await onRefresh();
-                  } catch (err) { 
-                    setFeedback({ isOpen: true, kind: 'bad', title: 'FTP Transmission Error', content: err.message, checks: [] }); 
-                  }
-                }}>🚀 Send File to FTP</button>
+              <div className="step-custom-box" style={{ padding: '10px 14px', background: '#F8FAFC', borderRadius: '4px', border: '1px solid var(--line-soft)' }}>
+                <div style={{ fontWeight: 600, fontSize: '11.5px', color: 'var(--ink-2)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  Company Sender Configuration:
+                </div>
+                <div style={{ marginBottom: '10px', fontSize: '12px', color: 'var(--ink)' }}>
+                  Configure the global admin email account to send the onboarding notification to the client. This will be securely saved to the server configuration.
+                </div>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                  <div style={{ flex: '1 1 180px', minWidth: '180px' }}>
+                    <input 
+                      style={{ width: '100%', padding: '6px 8px', border: '1px solid var(--line)', borderRadius: '3px', fontSize: '12px', background: '#fff' }}
+                      type="email"
+                      placeholder="Sender Email Address *"
+                      value={s11Email}
+                      onChange={(e) => setS11Email(e.target.value)}
+                    />
+                  </div>
+                  <div style={{ flex: '1 1 180px', minWidth: '180px' }}>
+                    <input 
+                      style={{ width: '100%', padding: '6px 8px', border: '1px solid var(--line)', borderRadius: '3px', fontSize: '12px', background: '#fff' }}
+                      type="password"
+                      placeholder="Email App Password *"
+                      value={s11Password}
+                      onChange={(e) => setS11Password(e.target.value)}
+                    />
+                  </div>
+                  <div style={{ flex: '1 1 auto', display: 'flex', alignItems: 'flex-start' }}>
+                    <button 
+                      className="btn tiny primary" 
+                      disabled={!s11Email.trim() || !s11Password.trim() || s11Sending}
+                      onClick={async () => {
+                        setS11Sending(true);
+                        try {
+                          const res = await postStepData(`/clients/${encodeURIComponent(clientId)}/steps/step_11_send_ftp/send`, {
+                            sender_email: s11Email.trim(),
+                            sender_password: s11Password.trim()
+                          });
+                          setFeedback({
+                            isOpen: true,
+                            kind: 'ok',
+                            title: res.title || 'Email Notification Sent',
+                            content: res.message || `Hello ${clientId}, we have sent the email notification.`,
+                            checks: res.checks || [
+                              { ok: true, label: 'Configuration Updated', detail: `Global sender email configured as ${s11Email.trim()}` },
+                              { ok: true, label: 'Notification Sent', detail: 'Email message successfully sent to the client. Step 11 marked as complete.' }
+                            ]
+                          });
+                          await onRefresh();
+                        } catch (err) { 
+                          setFeedback({ isOpen: true, kind: 'bad', title: 'Transmission Error', content: err.message, checks: [] }); 
+                        } finally {
+                          setS11Sending(false);
+                        }
+                      }}
+                      style={{ 
+                        padding: '6px 14px', 
+                        fontWeight: 600, 
+                        height: '29px',
+                        opacity: s11Sending ? 0.6 : 1,
+                        filter: s11Sending ? 'blur(0.5px)' : 'none',
+                        transition: 'opacity 0.2s, filter 0.2s'
+                      }}
+                    >
+                      {s11Sending ? '⏳ Sending...' : '🚀 Send Email Notification'}
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -854,7 +905,7 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
                     </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--ink-2)', whiteSpace: 'nowrap' }}>Time *:</label>
+                    <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--ink-2)', whiteSpace: 'nowrap' }}>Time (EST) *:</label>
                     <input
                       type="time"
                       style={{ width: '110px', padding: '4px 6px', border: '1px solid var(--line)', borderRadius: '3px', fontSize: '12px', background: '#fff', color: 'var(--ink)', height: '28px' }}

@@ -9,7 +9,16 @@ class AdminMFA(models.Model):
 
     class Meta:
         db_table = 'admin_mfa'
+
+class UserProfile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    mobile = models.CharField(max_length=20, null=True, blank=True)
+    clients = models.ManyToManyField('Client', related_name='assigned_users', blank=True)
+
+    class Meta:
+        db_table = 'user_profiles'
         
+
 class Client(models.Model):
     id = models.CharField(max_length=64, primary_key=True)
     name = models.CharField(max_length=255)

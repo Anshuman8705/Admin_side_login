@@ -135,15 +135,7 @@ export default function LoginGate({ onLoginSuccess }) {
                   {loading ? 'Creating account…' : 'Sign Up'}
                 </button>
 
-                <div style={{ textAlign: 'center', marginTop: '14px' }}>
-                  <button
-                    type="button"
-                    style={{ fontSize: '12px', color: 'var(--ink-3)', textDecoration: 'underline' }}
-                    onClick={() => { setStep(1); setErrorMsg(''); }}
-                  >
-                    Already have an account? Sign In
-                  </button>
-                </div>
+
               </form>
             ) : step === 1 ? (
               <form className="step1" onSubmit={handleContinue}>
@@ -180,15 +172,7 @@ export default function LoginGate({ onLoginSuccess }) {
                   {loading ? 'Signing In…' : 'Continue'}
                 </button>
 
-                <div style={{ textAlign: 'center', marginTop: '14px' }}>
-                  <button
-                    type="button"
-                    style={{ fontSize: '12px', color: 'var(--ink-3)', textDecoration: 'underline' }}
-                    onClick={() => { setStep(0); setErrorMsg(''); setName(''); setEmail(''); setPassword(''); }}
-                  >
-                    Don't have an account? Sign Up
-                  </button>
-                </div>
+
               </form>
             ) : step === 2 ? (
               <form className="step2 on" onSubmit={handleSignIn}>

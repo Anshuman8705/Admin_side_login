@@ -1,8 +1,8 @@
 from django.db import models
-from django.contrib.auth.models import User
+from django.conf import settings
 
 class AdminMFA(models.Model):
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='mfa')
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='mfa')
     totp_secret = models.CharField(max_length=32, null=True, blank=True)
     is_enabled = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -11,7 +11,7 @@ class AdminMFA(models.Model):
         db_table = 'admin_mfa'
 
 class UserProfile(models.Model):
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='profile')
     mobile = models.CharField(max_length=20, null=True, blank=True)
     clients = models.ManyToManyField('Client', related_name='assigned_users', blank=True)
 

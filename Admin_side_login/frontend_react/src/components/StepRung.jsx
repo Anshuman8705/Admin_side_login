@@ -149,7 +149,7 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
     try {
       let res;
       if (isOffboarding) {
-        res = await uploadOffboardingStepFile(clientId, step.step_number, file);
+        res = await uploadOffboardingStepFile(clientId, step.id, file);
       } else {
         res = await uploadStepFile(clientId, step.key, file);
       }
@@ -339,7 +339,7 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
   const handleCompleteGeneric = async () => {
     try {
       if (isOffboarding) {
-        await completeOffboardingStep(clientId, step.step_number);
+        await completeOffboardingStep(clientId, step.id);
       } else {
         await postStepData(`/clients/${encodeURIComponent(clientId)}/onboarding/steps/${encodeURIComponent(step.key)}/complete`, {});
       }
@@ -410,7 +410,7 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
 
         {(step.inProgress || step.done) && (
           <>
-            {(step.actionType === 'upload_notice' || step.actionType === 'upload_archive' || step.actionType === 'upload_template' || step.actionType === 'email_upload') && (
+            {!isOffboarding && (step.actionType === 'upload_notice' || step.actionType === 'upload_archive' || step.actionType === 'upload_template' || step.actionType === 'email_upload') && (
               <div style={{ marginTop: '12px' }}>
                 <label className={`btn tiny ${step.done ? 'success' : 'primary'}`} style={{ cursor: 'pointer' }}>
                   {step.done ? '⬆ Upload Replacement' : '⬆ Upload Document'}
@@ -1061,11 +1061,11 @@ export default function StepRung({ step, clientId, roles, onRefresh, onOpenNotes
             </button>
           )}
 
-          {(step.actionType === 'upload_template' || step.actionType === 'email_upload') && (
+          {(step.actionType === 'upload_template' || step.actionType === 'email_upload' || step.actionType === 'upload_notice' || step.actionType === 'upload_archive') && (
             <label
               className={`btn tiny icon-btn ${step.done ? 'success' : 'primary'}`}
               style={{ cursor: 'pointer' }}
-              title={step.actionType === 'email_upload' ? "Upload Email Confirmation (Images & Documents)" : "Upload File"}
+              title={step.actionType === 'email_upload' ? "Upload Email Confirmation (Images & Documents)" : step.actionType === 'upload_notice' ? "Upload Termination Notice" : step.actionType === 'upload_archive' ? "Upload Archive" : "Upload File"}
               aria-label="Upload File"
             >
               ⬆

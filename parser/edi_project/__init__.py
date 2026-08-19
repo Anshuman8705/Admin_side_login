@@ -1,1 +1,0 @@
-# edi_project package

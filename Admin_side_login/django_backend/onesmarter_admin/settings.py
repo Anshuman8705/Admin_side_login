@@ -18,6 +18,11 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    # Client apps
+    'accounts',
+    'home',
+    'converter',
+    'edi835',
     # Third party apps
     'rest_framework',
     'rest_framework.authtoken',
@@ -87,6 +92,8 @@ else:
         }
     }
 
+AUTH_USER_MODEL = 'accounts.User'
+
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
@@ -113,6 +120,7 @@ CORS_EXPOSE_HEADERS = ['Content-Disposition', 'X-OneSmarter-Filename', 'Content-
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
         'rest_framework.authentication.TokenAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [

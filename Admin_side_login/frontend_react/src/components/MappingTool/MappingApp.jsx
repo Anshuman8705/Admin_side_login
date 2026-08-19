@@ -294,7 +294,6 @@ export default function MappingApp({ clients = [], activeClientId, currentClient
         activeClientName={clientName}
         onSignOut={onSignOut}
         showClientBadge={true}
-        showClientBadge={true}
         currentUser={currentUser}
         onToggleSidebar={() => setIsSidebarOpen(prev => !prev)}
       />

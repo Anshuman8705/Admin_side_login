@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Header from './components/Header';
 import ClientsTable from './components/ClientsTable';
 import OnboardingLadder from './components/OnboardingLadder';
@@ -7,6 +7,7 @@ import FilesView from './components/FilesView';
 import GoLiveView from './components/GoLiveView';
 import OffboardingLadder from './components/OffboardingLadder';
 import AccessView from './components/AccessView';
+import TestEnvironmentView from './components/TestEnvironmentView';
 import AddClientModal from './components/modals/AddClientModal';
 import NotesModal from './components/modals/NotesModal';
 import AddRoleModal from './components/modals/AddRoleModal';
@@ -15,6 +16,12 @@ import RevokeClientModal from './components/modals/RevokeClientModal';
 import FeedbackModal from './components/modals/FeedbackModal';
 import LoginGate from './components/login/LoginGate';
 import MappingApp from './components/MappingTool/MappingApp';
+
+import FlowView from './pages/FlowView';
+import ConversionsView from './pages/ConversionsView';
+import NoticesView from './pages/NoticesView';
+import ArchiveView from './pages/ArchiveView';
+import ConnectionsView from './pages/ConnectionsView';
 
 import { fetchClients, fetchClientState, createClient, deleteClient, redoStep, fetchEmployeeRoles, fetchAuditLogs, fetchAccessInfo, logoutAdmin } from './services/api';
 
@@ -57,6 +64,19 @@ function renderAuditDetails(details) {
 }
 
 export default function App() {
+  // Redirect /sftp or /sandbox to main app with nav=sandbox to avoid relative CSS path issues
+  if (window.location.pathname.startsWith('/sftp') || window.location.pathname.startsWith('/sandbox')) {
+    const params = new URLSearchParams(window.location.search);
+    const client = params.get('client') || '';
+    window.location.replace(`/?nav=sandbox&client=${encodeURIComponent(client)}`);
+    return null;
+  }
+
+  // Auto-heal /login path to / to keep relative assets functioning correctly
+  if (window.location.pathname === '/login') {
+    window.history.replaceState({}, '', '/' + window.location.search);
+  }
+
   const isMappingRoute = window.location.pathname.startsWith('/mapping');
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     return Boolean(localStorage.getItem('onesmarter_admin_token'));
@@ -82,6 +102,13 @@ export default function App() {
     if (n === 'onboarding' || n === 'onboard') return 'onboard';
     if (n) return n;
     if (params.get('client')) return 'onboard';
+    try {
+      const savedUser = localStorage.getItem('onesmarter_admin_user');
+      if (savedUser) {
+        const u = JSON.parse(savedUser);
+        if (!u.is_superuser) return 'flow';
+      }
+    } catch (e) {}
     return 'clients';
   });
   const [roles, setRoles] = useState([]);
@@ -89,6 +116,14 @@ export default function App() {
   const [recentLogins, setRecentLogins] = useState([]);
   const [auditClientFilter, setAuditClientFilter] = useState('');
   const [auditModuleFilter, setAuditModuleFilter] = useState('');
+
+  // Client Dashboard states
+  const [viewerFileId, setViewerFileId] = useState(null);
+  const [sftpBrowserState, setSftpBrowserState] = useState(null);
+  const [metrics, setMetrics] = useState({});
+  const [trackedFiles, setTrackedFiles] = useState([]);
+  const [sftpConfigs, setSftpConfigs] = useState([]);
+  const [activeSftpConfig, setActiveSftpConfig] = useState(null);
 
   // Modal states
   const [isAddClientOpen, setIsAddClientOpen] = useState(false);
@@ -157,6 +192,46 @@ export default function App() {
       loadAuditLogs(auditClientFilter, auditModuleFilter);
     }
   }, [auditClientFilter, auditModuleFilter, isAuthenticated]);
+
+  const refreshDashboardData = useCallback(async () => {
+    if (!isAuthenticated) return;
+    const token = localStorage.getItem('onesmarter_admin_token');
+    const headers = {};
+    if (token) {
+      headers['Authorization'] = `Token ${token}`;
+    }
+    try {
+      const [mRes, tRes, sRes] = await Promise.all([
+        fetch("/edi835/api/metrics/", { headers }),
+        fetch("/edi835/api/tracked-files/", { headers }),
+        fetch("/edi835/api/sftp/get/", { headers }),
+      ]);
+
+      if (mRes.ok) {
+        const mData = await mRes.json();
+        setMetrics(mData);
+      }
+      if (tRes.ok) {
+        const tData = await tRes.json();
+        setTrackedFiles(tData.files || []);
+      }
+      if (sRes.ok) {
+        const sData = await sRes.json();
+        setSftpConfigs(sData.configurations || []);
+        setActiveSftpConfig(sData.active_config || null);
+      }
+    } catch (e) {
+      console.warn("Failed refreshing dashboard data:", e);
+    }
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      refreshDashboardData();
+      const interval = setInterval(refreshDashboardData, 3000);
+      return () => clearInterval(interval);
+    }
+  }, [isAuthenticated, refreshDashboardData]);
 
   const loadClients = async () => {
     try {
@@ -324,7 +399,7 @@ export default function App() {
         onSelectClient={handleSelectClient}
         activeClientName={currentClient?.name}
         onSignOut={handleSignOut}
-        showClientBadge={['onboard', 'docs', 'sandbox', 'promote'].includes(activeNav)}
+        showClientBadge={['onboard', 'docs', 'files', 'sandbox', 'promote', 'offboard'].includes(activeNav)}
         currentUser={currentUser}
         onToggleSidebar={() => setIsSidebarOpen(prev => !prev)}
       />
@@ -332,47 +407,114 @@ export default function App() {
       <div className="shell">
         {/* Left Navigation Sidebar matching POC exactly */}
         <nav className={`rail ${isSidebarOpen ? 'open' : ''}`}>
-          <div className="grp eyebrow">Clients</div>
-          <button className={`navitem ${activeNav === 'clients' ? 'on' : ''}`} onClick={() => { setActiveNav('clients'); setIsSidebarOpen(false); }}>
-            <span>All Clients</span>
-            <span className="count">{clients.length}</span>
-          </button>
-          <button className={`navitem ${activeNav === 'onboard' ? 'on' : ''}`} onClick={() => { setActiveNav('onboard'); setIsSidebarOpen(false); }}>
-            <span>Onboarding</span>
-          </button>
-          <button className={`navitem ${activeNav === 'docs' ? 'on' : ''}`} onClick={() => { setActiveNav('docs'); setIsSidebarOpen(false); }}>
-            <span>Documents</span>
-          </button>
-          <button className={`navitem ${activeNav === 'files' ? 'on' : ''}`} onClick={() => { setActiveNav('files'); setIsSidebarOpen(false); }}>
-            <span>Files</span>
-          </button>
+          {!currentUser?.is_superuser ? (
+            <>
+              <div className="grp eyebrow">Operations</div>
+              <button className={`navitem ${activeNav === 'flow' ? 'on' : ''}`} onClick={() => { setActiveNav('flow'); setIsSidebarOpen(false); }}>
+                <span>Flow</span>
+              </button>
+              <button className={`navitem ${activeNav === 'batches' ? 'on' : ''}`} onClick={() => { setActiveNav('batches'); setIsSidebarOpen(false); }}>
+                <span>Conversions</span>
+              </button>
+              <button className={`navitem ${activeNav === 'notices' ? 'on' : ''}`} onClick={() => { setActiveNav('notices'); setIsSidebarOpen(false); }}>
+                <span>Notices</span>
+                <span className="count">3</span>
+              </button>
+              <div className="grp eyebrow" style={{ paddingTop: '18px' }}>Records</div>
+              <button className={`navitem ${activeNav === 'archive' ? 'on' : ''}`} onClick={() => { setActiveNav('archive'); setIsSidebarOpen(false); }}>
+                <span>Archive</span>
+              </button>
+              <button className={`navitem ${activeNav === 'conn' ? 'on' : ''}`} onClick={() => { setActiveNav('conn'); setIsSidebarOpen(false); }}>
+                <span>Connections</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="grp eyebrow">Clients</div>
+              <button className={`navitem ${activeNav === 'clients' ? 'on' : ''}`} onClick={() => { setActiveNav('clients'); setIsSidebarOpen(false); }}>
+                <span>All Clients</span>
+                <span className="count">{clients.length}</span>
+              </button>
+              <button className={`navitem ${activeNav === 'onboard' ? 'on' : ''}`} onClick={() => { setActiveNav('onboard'); setIsSidebarOpen(false); }}>
+                <span>Onboarding</span>
+              </button>
+              <button className={`navitem ${activeNav === 'docs' ? 'on' : ''}`} onClick={() => { setActiveNav('docs'); setIsSidebarOpen(false); }}>
+                <span>Documents</span>
+              </button>
+              <button className={`navitem ${activeNav === 'files' ? 'on' : ''}`} onClick={() => { setActiveNav('files'); setIsSidebarOpen(false); }}>
+                <span>Files</span>
+              </button>
+              <button className={`navitem ${activeNav === 'sandbox' ? 'on' : ''}`} onClick={() => { setActiveNav('sandbox'); setIsSidebarOpen(false); }}>
+                <span>Sandbox</span>
+              </button>
 
-          <div className="grp eyebrow" style={{ paddingTop: '18px' }}>Pre-Production</div>
-          <button className={`navitem ${activeNav === 'promote' ? 'on' : ''}`} onClick={() => { setActiveNav('promote'); setIsSidebarOpen(false); }}>
-            <span>Go Live</span>
-          </button>
+              <div className="grp eyebrow" style={{ paddingTop: '18px' }}>Pre-Production</div>
+              <button className={`navitem ${activeNav === 'promote' ? 'on' : ''}`} onClick={() => { setActiveNav('promote'); setIsSidebarOpen(false); }}>
+                <span>Go Live</span>
+              </button>
 
-          <div className="grp eyebrow" style={{ paddingTop: '18px' }}>Governance</div>
-          <button className={`navitem ${activeNav === 'trust' ? 'on' : ''}`} onClick={() => { setActiveNav('trust'); setIsSidebarOpen(false); }}>
-            <span>Trust Center</span>
-          </button>
-          <button className={`navitem ${activeNav === 'access' ? 'on' : ''}`} onClick={() => { setActiveNav('access'); setIsSidebarOpen(false); }}>
-            <span>Access</span>
-          </button>
-          <button className={`navitem ${activeNav === 'audit' ? 'on' : ''}`} onClick={() => { setActiveNav('audit'); setIsSidebarOpen(false); }}>
-            <span>Audit Log</span>
-          </button>
+              <div className="grp eyebrow" style={{ paddingTop: '18px' }}>Governance</div>
+              <button className={`navitem ${activeNav === 'trust' ? 'on' : ''}`} onClick={() => { setActiveNav('trust'); setIsSidebarOpen(false); }}>
+                <span>Trust Center</span>
+              </button>
+              <button className={`navitem ${activeNav === 'access' ? 'on' : ''}`} onClick={() => { setActiveNav('access'); setIsSidebarOpen(false); }}>
+                <span>Access</span>
+              </button>
+              <button className={`navitem ${activeNav === 'audit' ? 'on' : ''}`} onClick={() => { setActiveNav('audit'); setIsSidebarOpen(false); }}>
+                <span>Audit Log</span>
+              </button>
 
-          <div className="grp eyebrow" style={{ paddingTop: '18px' }}>Operations</div>
-          <button className={`navitem ${activeNav === 'ops' ? 'on' : ''}`} onClick={() => { setActiveNav('ops'); setIsSidebarOpen(false); }}>
-            <span>Operations</span>
-          </button>
-          <button className={`navitem ${activeNav === 'offboard' ? 'on' : ''}`} onClick={() => { setActiveNav('offboard'); setIsSidebarOpen(false); }}>
-            <span>Offboarding</span>
-          </button>
+              <div className="grp eyebrow" style={{ paddingTop: '18px' }}>Operations</div>
+              <button className={`navitem ${activeNav === 'ops' ? 'on' : ''}`} onClick={() => { setActiveNav('ops'); setIsSidebarOpen(false); }}>
+                <span>Operations</span>
+              </button>
+              <button className={`navitem ${activeNav === 'offboard' ? 'on' : ''}`} onClick={() => { setActiveNav('offboard'); setIsSidebarOpen(false); }}>
+                <span>Offboarding</span>
+              </button>
+            </>
+          )}
         </nav>
 
         <main className="main">
+          {activeNav === 'flow' && (
+            <FlowView
+              metrics={metrics}
+              recentFiles={trackedFiles}
+              inboundConfig={activeSftpConfig}
+              outboundConfig={activeSftpConfig}
+              onNavigateTab={setActiveNav}
+            />
+          )}
+
+          {activeNav === 'batches' && (
+            <ConversionsView
+              trackedFiles={trackedFiles}
+              onRefreshData={refreshDashboardData}
+              onOpenFileModal={(id) => setViewerFileId(id)}
+            />
+          )}
+
+          {activeNav === 'notices' && <NoticesView />}
+
+          {activeNav === 'archive' && (
+            <ArchiveView
+              metrics={metrics}
+              trackedFiles={trackedFiles}
+              sftpConfig={activeSftpConfig}
+              onRefreshData={refreshDashboardData}
+              onOpenFileModal={(id) => setViewerFileId(id)}
+            />
+          )}
+
+          {activeNav === 'conn' && (
+            <ConnectionsView
+              sftpConfigs={sftpConfigs}
+              activeConfig={activeSftpConfig}
+              onRefreshSftp={refreshDashboardData}
+              onOpenSftpBrowser={(params) => setSftpBrowserState(params)}
+            />
+          )}
+
           {activeNav === 'clients' && (
             <ClientsTable
               clients={clients}
@@ -409,6 +551,14 @@ export default function App() {
 
           {activeNav === 'files' && (
             <FilesView
+              clients={clients}
+              activeClientId={activeClientId}
+              onSelectClient={handleSelectClient}
+            />
+          )}
+
+          {activeNav === 'sandbox' && (
+            <TestEnvironmentView
               clients={clients}
               activeClientId={activeClientId}
               onSelectClient={handleSelectClient}

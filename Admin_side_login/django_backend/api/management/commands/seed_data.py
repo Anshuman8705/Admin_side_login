@@ -1,6 +1,7 @@
 from django.core.management.base import BaseCommand
 from datetime import datetime, timezone, timedelta
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
+User = get_user_model()
 from api.models import (
     OnboardingPhase, OnboardingStepDefinition, EmployeeRole, Client, ClientStepStatus,
     GoLiveStepDefinition, ClientGoLiveStatus, ClientTestEnvironment, ClientDocument,
@@ -238,8 +239,8 @@ class Command(BaseCommand):
                 status='SUCCESS'
             )
 
-        if not User.objects.filter(username='admin').exists():
-            User.objects.create_superuser('admin', 'admin@onesmarter.com', 'adminpassword')
-            self.stdout.write(self.style.SUCCESS('Created default superuser "admin"'))
+        if not User.objects.filter(email='admin@onesmarter.com').exists():
+            User.objects.create_superuser(email='admin@onesmarter.com', name='Admin User', mobile='1234567890', password='adminpassword')
+            self.stdout.write(self.style.SUCCESS('Created default superuser "admin@onesmarter.com"'))
 
         self.stdout.write(self.style.SUCCESS('Successfully seeded Django database!'))

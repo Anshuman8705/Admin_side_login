@@ -5,13 +5,11 @@ from pathlib import Path
 from django.conf import settings
 from django.db import transaction
 from django.http import FileResponse, Http404
-from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
-from rest_framework.parsers import MultiPartParser, FormParser
 from django.core.mail import send_mail, EmailMessage
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB limit
@@ -89,7 +87,7 @@ class AuthLoginView(APIView):
         ip = x_forwarded.split(',')[0].strip() if x_forwarded else request.META.get('REMOTE_ADDR', '127.0.0.1')
         ua = request.META.get('HTTP_USER_AGENT', 'Mozilla/5.0')[:250]
 
-        if not user or not user.is_superuser:
+        if not user or (not user.is_superuser and not user.is_staff):
             LoginHistory.objects.create(
                 username=username_attempt, ip_address=ip, user_agent=ua, status='FAILED'
             )
@@ -295,7 +293,7 @@ class AccessInfoView(APIView):
 
         # Dynamically fetch staff from the database User model
         staff_list = []
-        for u in User.objects.filter(is_staff=True).order_by('-is_superuser', 'id'):
+        for u in User.objects.filter(is_staff=True).order_by('id'):
             full_name = u.get_full_name() or u.username
             u_logins = LoginHistory.objects.filter(username=u.username, status='SUCCESS').order_by('-login_time')
             u_last_login = u_logins[0].login_time.isoformat() if u_logins.exists() else None
@@ -418,8 +416,16 @@ def update_client_stage(client):
         client.save()
         return
 
-    # 1. Check Go-Live Step 4 (Production Date and Time) FIRST
-    # Even if all steps (including 6) are complete, it stays pending until the date is reached.
+    # 1. Check Go-Live Step 6 (Production Finalized)
+    st6 = ClientGoLiveStatus.objects.filter(client=client, step__step_number=6, status='DONE').first()
+    if st6:
+        client.stage = 'production'
+        if not client.live_since:
+            client.live_since = datetime.now(timezone.utc).strftime("%d/%m/%Y")
+        client.save()
+        return
+
+    # 2. Check Go-Live Step 4 (Production Date and Time)
     sched = ClientGoLiveSchedule.objects.filter(client=client).first()
     st4 = ClientGoLiveStatus.objects.filter(client=client, step__step_number=4, status='DONE').first()
     if sched and sched.production_date and st4:
@@ -436,15 +442,6 @@ def update_client_stage(client):
                 client.stage = 'production_pending'
                 client.save()
                 return
-
-    # 2. Check Go-Live Step 6 (Fallback if Step 4 is somehow missing/unparseable)
-    st6 = ClientGoLiveStatus.objects.filter(client=client, step__step_number=6, status='DONE').first()
-    if st6:
-        client.stage = 'production'
-        if not client.live_since:
-            client.live_since = datetime.now(timezone.utc).strftime("%d/%m/%Y")
-        client.save()
-        return
 
     # 3. Check Go-Live Step 1 (Document uploaded & verified)
     st1 = ClientGoLiveStatus.objects.filter(client=client, step__step_number=1, status='DONE').first()
@@ -1504,11 +1501,10 @@ class RedoStepView(APIView):
         StepTextSubmission.objects.filter(client=client, step__in=subsequent_steps).delete()
 
         st_target = ClientStepStatus.objects.filter(client=client, step=target_step).first()
-        st_target_remains_done = False
         if st_target:
             # For step 4, if there are still contacts remaining after targeted redo, keep it as DONE
             if target_num == 4 and ClientContact.objects.filter(client=client).exists():
-                st_target_remains_done = True
+                pass
             else:
                 st_target.status = 'IN_PROGRESS'
                 st_target.completed_at = None
@@ -1517,9 +1513,6 @@ class RedoStepView(APIView):
 
         subsequent_after = OnboardingStepDefinition.objects.filter(step_number__gt=target_num)
         ClientStepStatus.objects.filter(client=client, step__in=subsequent_after).update(status='WAITING', completed_at=None, completed_by=None)
-
-        if st_target_remains_done:
-            advance_next_step(client, target_num)
 
         client.stage = 'onboarding'
         recalculate_client_progress(client)
@@ -2034,105 +2027,3 @@ class AuditLogListView(APIView):
             qs = qs.filter(module=mod)
         logs = qs[:100]
         return Response({'ok': True, 'logs': AuditLogSerializer(logs, many=True).data})
-from .models import OffboardingStepDefinition, ClientOffboardingStatus, OffboardingStepNote, OffboardingStepUpload
-from .serializers import OffboardingStepDefinitionSerializer, OffboardingStepNoteSerializer, ClientOffboardingStatusSerializer, OffboardingStepUploadSerializer
-
-class OffboardingStateView(APIView):
-    def get(self, request, client_id):
-        client = get_object_or_404(Client, id=client_id)
-        defs = OffboardingStepDefinition.objects.all().order_by('step_number')
-        steps_data = []
-        for d in defs:
-            status_obj, _ = ClientOffboardingStatus.objects.get_or_create(client=client, step=d)
-            notes = OffboardingStepNote.objects.filter(client=client, step_definition=d).order_by('-created_at')
-            uploads = OffboardingStepUpload.objects.filter(client=client, step=d)
-            
-            steps_data.append({
-                'step_number': d.step_number,
-                'step_key': d.step_key,
-                'title': d.title,
-                'description': d.description,
-                'actionType': d.action_type,
-                'status': status_obj.status,
-                'completed_at': status_obj.completed_at,
-                'completed_by': status_obj.completed_by,
-                'notes': OffboardingStepNoteSerializer(notes, many=True).data,
-                'uploads': OffboardingStepUploadSerializer(uploads, many=True).data
-            })
-        return Response({'ok': True, 'client_id': client.id, 'steps': steps_data})
-
-class OffboardingStepUploadView(APIView):
-    parser_classes = (MultiPartParser, FormParser)
-    def post(self, request, client_id, step_number):
-        client = get_object_or_404(Client, id=client_id)
-        step_def = get_object_or_404(OffboardingStepDefinition, step_number=step_number)
-        file_obj = request.FILES.get('file')
-        if not file_obj:
-            return Response({'error': 'No file provided'}, status=400)
-            
-        file_path = os.path.join(settings.MEDIA_ROOT, 'offboarding', client.id, str(step_number), file_obj.name)
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
-        with open(file_path, 'wb+') as dest:
-            for chunk in file_obj.chunks():
-                dest.write(chunk)
-                
-        OffboardingStepUpload.objects.create(
-            client=client,
-            step=step_def,
-            file_path=file_path,
-            file_name=file_obj.name,
-            uploaded_by=request.user.username if request.user.is_authenticated else 'admin'
-        )
-        return Response({'ok': True})
-
-class OffboardingStepDownloadView(APIView):
-    def get(self, request, client_id, step_number):
-        client = get_object_or_404(Client, id=client_id)
-        step_def = get_object_or_404(OffboardingStepDefinition, step_number=step_number)
-        upload = OffboardingStepUpload.objects.filter(client=client, step=step_def).first()
-        if not upload or not os.path.exists(upload.file_path):
-            return Response({'error': 'File not found'}, status=404)
-        
-        response = FileResponse(open(upload.file_path, 'rb'))
-        response['Content-Disposition'] = f'attachment; filename="{upload.file_name}"'
-        response['X-OneSmarter-Filename'] = upload.file_name
-        return response
-
-class OffboardingStepNoteView(APIView):
-    def post(self, request, client_id, step_number):
-        client = get_object_or_404(Client, id=client_id)
-        step_def = get_object_or_404(OffboardingStepDefinition, step_number=step_number)
-        content = request.data.get('content', '').strip()
-        if content:
-            OffboardingStepNote.objects.create(
-                client=client,
-                step_definition=step_def,
-                content=content,
-                created_by=request.user.username if request.user.is_authenticated else 'admin'
-            )
-        return Response({'ok': True})
-
-class OffboardingCompleteView(APIView):
-    def post(self, request, client_id, step_number):
-        client = get_object_or_404(Client, id=client_id)
-        step_def = get_object_or_404(OffboardingStepDefinition, step_number=step_number)
-        status_obj, _ = ClientOffboardingStatus.objects.get_or_create(client=client, step=step_def)
-        status_obj.status = 'Complete'
-        status_obj.completed_at = datetime.now(timezone.utc)
-        status_obj.completed_by = request.user.username if request.user.is_authenticated else 'admin'
-        status_obj.save()
-        return Response({'ok': True})
-
-class OffboardingRedoView(APIView):
-    def post(self, request, client_id, step_number):
-        client = get_object_or_404(Client, id=client_id)
-        step_def = get_object_or_404(OffboardingStepDefinition, step_number=step_number)
-        status_obj = ClientOffboardingStatus.objects.filter(client=client, step=step_def).first()
-        if status_obj:
-            status_obj.status = 'Pending'
-            status_obj.completed_at = None
-            status_obj.completed_by = None
-            status_obj.save()
-        OffboardingStepUpload.objects.filter(client=client, step=step_def).delete()
-        OffboardingStepNote.objects.filter(client=client, step_definition=step_def).delete()
-        return Response({'ok': True})

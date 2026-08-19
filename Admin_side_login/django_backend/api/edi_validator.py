@@ -7,6 +7,7 @@ Runs entirely locally using open-source PyX12 library.
 import io
 import json
 import logging
+import re
 import pyx12.params
 import pyx12.x12file
 import pyx12.x12n_document
@@ -142,9 +143,14 @@ class PyX12Validator:
             for line in output_str.split('\n'):
                 line = line.strip()
                 if line:
-                    if "is not a valid code" in line:
+                    line_num = 0
+                    m = re.search(r'Line:(\d+)', line)
+                    if m:
+                        line_num = int(m.group(1))
+
+                    if "is not a valid code" in line or "warning" in line.lower():
                         warnings.append({
-                            "line": 0,
+                            "line": line_num,
                             "segment": "X12",
                             "element": None,
                             "severity": "warning",
@@ -153,7 +159,7 @@ class PyX12Validator:
                         })
                     else:
                         errors.append({
-                            "line": 0,
+                            "line": line_num,
                             "segment": "X12",
                             "element": None,
                             "severity": "error",
